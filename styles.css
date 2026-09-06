@@ -50,6 +50,14 @@
   font-display: swap;
 }
 
+@font-face {
+  font-family: "Bradford LL";
+  src: url("assets/font/BradfordLL-BoldItalic.otf") format("opentype");
+  font-weight: 700;
+  font-style: italic;
+  font-display: swap;
+}
+
 :root {
   --serif: "Bradford LL", Georgia, "Times New Roman", serif;
   --ivory: #F5F2EA;
@@ -63,10 +71,8 @@
   --vase: #8A9680;
   --card: #FFFDF8;
   --focus: #4C7A93;
-  /* Deep cerulean pulled from Victoria's dress, darkened enough that
-     white text clears WCAG AA. Tune against assets/hero-web.jpg. */
-  --cerulean: #1A6B87;
-  --cerulean-dark: #145974;
+  --cerulean: #565CCE;
+  --cerulean-dark: #454AA5;
 }
 
 * {
@@ -83,6 +89,10 @@
   clip: rect(0 0 0 0);
   white-space: nowrap;
   border: 0;
+}
+
+html {
+  background: #9EAFC5;
 }
 
 body {
@@ -184,10 +194,9 @@ main {
 
 /* Copy that sits straight on the blurred hero, above the glass form. */
 .rsvp-copy {
+  width: 100%;
   text-align: center;
   color: var(--ivory);
-  text-shadow: 0 1px 2px rgba(18, 18, 16, 0.55),
-    0 2px 28px rgba(18, 18, 16, 0.45);
 }
 
 .rsvp-copy__kicker {
@@ -203,10 +212,15 @@ main {
   font-family: var(--serif);
   font-weight: 400;
   font-style: italic;
-  font-size: clamp(2.6rem, 9vw, 4.2rem);
+  /* Sized off the same content width as the .rsvp block beneath it
+     (main's max-width minus its side padding), so the date always
+     spans that width edge-to-edge instead of clipping past it.
+     614px measured glyph width at 100px font-size for this string. */
+  font-size: calc(min(100vw - 2.5rem, 31.5rem) / 6.5);
   line-height: 1;
   white-space: nowrap;
 }
+
 
 /* ---------------------------------------------------------------
    Write-on — a soft pen edge sweeps left to right, so the letters
@@ -319,16 +333,18 @@ main {
   backdrop-filter: blur(28px) saturate(1.15);
   -webkit-backdrop-filter: blur(28px) saturate(1.15);
   border: 1px solid rgba(255, 255, 255, 0.6);
-  border-radius: 16px;
+  /* Concentric with the corner-nearest content (the field input's 8px
+     radius, inset by this panel's own padding): 8px + 28px = 36px. */
+  border-radius: 2.25rem;
   padding: 1.75rem;
   box-shadow: 0 16px 50px rgba(20, 20, 18, 0.2);
 }
 
 .deadline-text {
-  margin: 0;
+  margin: 0 0 1.25rem;
   font-size: 0.95rem;
   text-align: center;
-  opacity: 0.9;
+  color: var(--ink-soft);
 }
 
 .field-row {
@@ -339,11 +355,13 @@ main {
 
 .field {
   flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
 }
 
 .field input {
+  width: 100%;
   font-family: inherit;
   font-size: 1rem;
   padding: 0.75rem 0.85rem;
@@ -368,6 +386,7 @@ main {
   display: flex;
   gap: 0.75rem;
   flex-wrap: wrap;
+  margin-top: 1.5rem;
 }
 
 .btn {
@@ -442,14 +461,6 @@ main {
   gap: 0.6rem;
 }
 
-.calendar-actions__label {
-  margin: 0 0 0.1rem;
-  font-size: 0.72rem;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--ink-soft);
-}
-
 .cal-btn {
   display: block;
   padding: 0.7rem 1rem;
@@ -496,5 +507,6 @@ main {
   }
   .rsvp {
     padding: 1.25rem;
+    border-radius: 1.75rem;
   }
 }

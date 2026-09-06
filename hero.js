@@ -20,8 +20,8 @@
 //                            enlarges the most, held sharpest until the
 //                            very end when everything defocuses.
 //
-// Two passes: composite -> half-float render target -> golden-angle
-// disc blur -> screen. Falls back to a plain cover image if WebGL or
+// Two passes: composite -> half-float render target -> Gaussian blur ->
+// screen. Falls back to a plain cover image if WebGL or
 // the Three.js module fails to load (see .hero__stage in styles.css).
 // ---------------------------------------------------------------
 
@@ -52,6 +52,132 @@ const SERIF = '"Bradford LL", Georgia, "Times New Roman", serif';
 
 // How long the pen takes to sweep across the hero title, in ms.
 const WRITE_MS = 2000;
+
+// ---------------------------------------------------------------
+// TEMPORARY — on-page sliders for the depth/parallax uniforms above, so
+// they can be dragged live instead of hand-edited in the shader source.
+// Delete this whole function (and its call site, and the `uSubjBoostHi`
+// etc. block in the uniforms/shader) once the numbers are settled — bake
+// the final values back into the shader as plain literals first.
+// ---------------------------------------------------------------
+const DEPTH_TUNER_CONFIG = [
+  { group: "Global", key: "uPanY", label: "camera pan (vertical)", min: -0.4, max: 0.4, step: 0.005 },
+
+  { group: "Background", key: "uBgZoomBase", label: "zoom: base (far)", min: 0, max: 0.3, step: 0.005 },
+  { group: "Background", key: "uBgZoomNear", label: "zoom: + near", min: 0, max: 0.4, step: 0.005 },
+  { group: "Background", key: "uBgZoomThresh", label: "zoom: near threshold", min: 0.15, max: 0.9, step: 0.01 },
+  { group: "Background", key: "uBgDriftNear", label: "drift: near", min: -0.15, max: 0, step: 0.002 },
+  { group: "Background", key: "uBgPointerAmt", label: "pointer parallax", min: 0, max: 0.03, step: 0.001 },
+
+  { group: '"&"', key: "uAmpGrow", label: "grow", min: 0, max: 0.5, step: 0.005 },
+  { group: '"&"', key: "uAmpDriftY", label: "drift: vertical", min: -0.3, max: 0, step: 0.005 },
+  { group: '"&"', key: "uAmpPointerAmt", label: "pointer parallax", min: 0, max: 0.05, step: 0.001 },
+
+  { group: "Names", key: "uNameGrow", label: "grow", min: 0, max: 0.5, step: 0.005 },
+  { group: "Names", key: "uNameDriftY", label: "drift: vertical", min: -0.3, max: 0, step: 0.005 },
+  { group: "Names", key: "uNamePointerAmt", label: "pointer parallax", min: 0, max: 0.05, step: 0.001 },
+
+  { group: "Subject", key: "uSubjZoomMult", label: "zoom: overall multiplier", min: 0, max: 2, step: 0.02 },
+  { group: "Subject", key: "uSubjBoostAmt", label: "near-boost amount", min: 0, max: 0.2, step: 0.005 },
+  { group: "Subject", key: "uSubjBoostHi", label: "near-boost cap depth", min: 0.55, max: 1, step: 0.01 },
+  { group: "Subject", key: "uSubjDriftMult", label: "drift multiplier", min: -1, max: 0, step: 0.01 },
+  { group: "Subject", key: "uSubjPointerAmt", label: "pointer parallax", min: 0, max: 0.06, step: 0.001 },
+  { group: "Subject", key: "uSubjFeetY", label: "feet sample Y", min: 0, max: 0.3, step: 0.005 },
+];
+
+function buildDepthTuner(uniforms) {
+  const panel = document.createElement("div");
+  panel.id = "depth-tuner";
+  panel.style.cssText = `
+    display: none;
+    position: fixed; top: 8px; left: 8px; z-index: 9999;
+    max-height: 92vh; overflow-y: auto; width: 230px;
+    background: rgba(20, 20, 18, 0.85); color: #f5f2ea;
+    font: 11px/1.4 -apple-system, system-ui, sans-serif;
+    padding: 10px 12px; border-radius: 8px;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+  `;
+
+  // Hidden by default now that values are tuned — press ` (backtick) to
+  // show/hide it again, or `document.getElementById('depth-tuner')
+  // .style.display = 'block'` from the console.
+  window.addEventListener("keydown", (e) => {
+    if (e.key !== "`") return;
+    panel.style.display = panel.style.display === "none" ? "block" : "none";
+  });
+
+  const title = document.createElement("div");
+  title.textContent = "Depth tuner (temporary)";
+  title.style.cssText = "font-weight: 600; font-size: 12px; margin-bottom: 6px;";
+  panel.appendChild(title);
+
+  let currentGroup = null;
+  DEPTH_TUNER_CONFIG.forEach((cfg) => {
+    if (cfg.group !== currentGroup) {
+      currentGroup = cfg.group;
+      const h = document.createElement("div");
+      h.textContent = currentGroup;
+      h.style.cssText = `
+        margin: 8px 0 2px; opacity: 0.65; text-transform: uppercase;
+        letter-spacing: 0.05em; font-size: 10px;
+      `;
+      panel.appendChild(h);
+    }
+
+    const row = document.createElement("label");
+    row.style.cssText = "display: block; margin: 4px 0;";
+
+    const labelRow = document.createElement("div");
+    labelRow.style.cssText = "display: flex; justify-content: space-between;";
+    const labelText = document.createElement("span");
+    labelText.textContent = cfg.label;
+    const valSpan = document.createElement("span");
+    valSpan.style.opacity = "0.8";
+    labelRow.appendChild(labelText);
+    labelRow.appendChild(valSpan);
+    row.appendChild(labelRow);
+
+    const input = document.createElement("input");
+    input.type = "range";
+    input.min = cfg.min;
+    input.max = cfg.max;
+    input.step = cfg.step;
+    input.style.cssText = "width: 100%; display: block;";
+
+    const sync = (v) => {
+      valSpan.textContent = v.toFixed(3);
+      input.value = v;
+    };
+    sync(uniforms[cfg.key].value);
+
+    input.addEventListener("input", () => {
+      const v = parseFloat(input.value);
+      uniforms[cfg.key].value = v;
+      valSpan.textContent = v.toFixed(3);
+    });
+
+    row.appendChild(input);
+    panel.appendChild(row);
+  });
+
+  const logBtn = document.createElement("button");
+  logBtn.type = "button";
+  logBtn.textContent = "Log values to console";
+  logBtn.style.cssText = `
+    margin-top: 10px; width: 100%; padding: 6px; border-radius: 4px;
+    border: 0; cursor: pointer; font: inherit;
+  `;
+  logBtn.addEventListener("click", () => {
+    const out = {};
+    DEPTH_TUNER_CONFIG.forEach((cfg) => {
+      out[cfg.key] = uniforms[cfg.key].value;
+    });
+    console.log("Depth tuner values:", out);
+  });
+  panel.appendChild(logBtn);
+
+  document.body.appendChild(panel);
+}
 
 if (canvas && heroEl) {
   try {
@@ -84,10 +210,12 @@ function initHero() {
     uBg: { value: null },
     uBgDepth: { value: null },
     uSubj: { value: null },
+    uSubjDepth: { value: null },
     uAmp: { value: null },
     uAmpAspect: { value: 1 },
     uAmpReady: { value: 0 },
-    uAmpSpanH: { value: 0.78 }, // "&" height as fraction of viewport height
+    uAmpGapFrac: { value: 0.4 }, // the names' centre gap, as a fraction of their own width
+    uAmpFitGap: { value: 1 }, // 1 = clamp to the gap (desktop), 0 = allowed to overlap (mobile)
     uName: { value: null },
     uNameAspect: { value: 5 },
     uNameReady: { value: 0 },
@@ -100,12 +228,42 @@ function initHero() {
     uReady: { value: 0 },
     uWrite: { value: prefersReduced ? 1 : 0 },
     uMotion: { value: prefersReduced ? 0.4 : 1 },
+
+    // --- TEMPORARY: exposed to the on-page depth tuner (see
+    // buildDepthTuner below) so the parallax/zoom amounts can be
+    // dragged live instead of hand-edited in the shader. Panel is
+    // hidden by default (buildDepthTuner) — show it via the console
+    // (document.getElementById('depth-tuner').style.display = 'block')
+    // to keep tuning, or bake the current values back into the shader
+    // as literals and delete the tuner entirely once truly settled. ---
+    uPanY: { value: 0.125 }, // global vertical camera pan, shared by bg + subject
+
+    uBgZoomBase: { value: 0.09 },
+    uBgZoomNear: { value: 0.4 },
+    uBgZoomThresh: { value: 0.55 },
+    uBgDriftNear: { value: -0.028 },
+    uBgPointerAmt: { value: 0.022 },
+
+    uAmpGrow: { value: 0.27 },
+    uAmpDriftY: { value: -0.075 },
+    uAmpPointerAmt: { value: 0.018 },
+
+    uNameGrow: { value: 0.26 },
+    uNameDriftY: { value: -0.115 },
+    uNamePointerAmt: { value: 0.024 },
+
+    uSubjBoostAmt: { value: 0.045 },
+    uSubjBoostHi: { value: 1 },
+    uSubjZoomMult: { value: 1.7 },
+    uSubjDriftMult: { value: -0.09 },
+    uSubjPointerAmt: { value: 0.03 },
+    uSubjFeetY: { value: 0.12 },
   };
 
   const loader = new THREE.TextureLoader();
   let loaded = 0;
   const markLoaded = () => {
-    if (++loaded === 3) uniforms.uReady.value = 1;
+    if (++loaded === 4) uniforms.uReady.value = 1;
   };
 
   loader.load("assets/bg-web.jpg", (t) => {
@@ -121,11 +279,17 @@ function initHero() {
     uniforms.uBgDepth.value = t;
     markLoaded();
   });
-  loader.load("assets/subjects-web.png", (t) => {
+  loader.load("assets/Subjects.png", (t) => {
     t.colorSpace = THREE.SRGBColorSpace;
     t.minFilter = THREE.LinearFilter;
     t.generateMipmaps = false;
     uniforms.uSubj.value = t;
+    markLoaded();
+  });
+  loader.load("assets/subjdepth-web.png", (t) => {
+    t.minFilter = THREE.LinearFilter;
+    t.generateMipmaps = false;
+    uniforms.uSubjDepth.value = t;
     markLoaded();
   });
 
@@ -147,10 +311,12 @@ function initHero() {
       uniform sampler2D uBg;
       uniform sampler2D uBgDepth;
       uniform sampler2D uSubj;
+      uniform sampler2D uSubjDepth;
       uniform sampler2D uAmp;
       uniform float uAmpAspect;
       uniform float uAmpReady;
-      uniform float uAmpSpanH;
+      uniform float uAmpGapFrac;
+      uniform float uAmpFitGap;
       uniform sampler2D uName;
       uniform float uNameAspect;
       uniform float uNameReady;
@@ -163,6 +329,27 @@ function initHero() {
       uniform float uReady;
       uniform float uWrite;
       uniform float uMotion;
+
+      // TEMPORARY: tunable versions of the parallax constants — see the
+      // uniforms block in initHero() and buildDepthTuner().
+      uniform float uPanY;
+      uniform float uBgZoomBase;
+      uniform float uBgZoomNear;
+      uniform float uBgZoomThresh;
+      uniform float uBgDriftNear;
+      uniform float uBgPointerAmt;
+      uniform float uAmpGrow;
+      uniform float uAmpDriftY;
+      uniform float uAmpPointerAmt;
+      uniform float uNameGrow;
+      uniform float uNameDriftY;
+      uniform float uNamePointerAmt;
+      uniform float uSubjBoostAmt;
+      uniform float uSubjBoostHi;
+      uniform float uSubjZoomMult;
+      uniform float uSubjDriftMult;
+      uniform float uSubjPointerAmt;
+      uniform float uSubjFeetY;
 
       vec2 coverFit(vec2 v, float overscan) {
         float screenA = uRes.x / uRes.y;
@@ -187,6 +374,17 @@ function initHero() {
         d += texture2D(uBgDepth, uv + vec2(-px.x,  px.y)).r * 0.0625;
         return d;
       }
+
+      // Dolly-zoom coefficient for the background: 0.09 at the horizon,
+      // rising through 0.05-uBgZoomThresh depth to base+near at the near
+      // ground. The subject adds its own extra term on top of this (see
+      // below) rather than this function being stretched to cover it,
+      // which would also push the background's own near ground past the
+      // range it was tuned for.
+      float depthZoomCoef(float depth) {
+        return uBgZoomBase + uBgZoomNear * smoothstep(0.05, uBgZoomThresh, depth);
+      }
+
 
       // Progressive grade: lift saturation, then darken (slightly cool).
       vec3 grade(vec3 c, float dark, float sat) {
@@ -234,7 +432,14 @@ function initHero() {
         float write = 1.0 - smoothstep(pen, pen + 0.13, penX);
 
         vec2 base = coverFit(vUv, 0.96);
-        base.y += 0.05;
+        // Global camera pan: shifts the whole shared "world" coordinate
+        // (both background and subject sample from base/bgUv) uniformly
+        // as you scroll, on top of — and distinct from — each layer's
+        // own depth-scaled rise below. That per-layer rise varies by
+        // depth (a pedestal/truck move); this is a plain pan, the same
+        // for every depth, so it reads as the camera tilting from a
+        // higher framing down toward a lower one as you scroll.
+        base.y += 0.05 + dolly * uPanY;
         vec2 bgUv = vec2((base.x - 0.5) * uBgSqueeze + 0.5, base.y);
 
         // -------- background layer --------
@@ -242,29 +447,49 @@ function initHero() {
         // than the far field about a low pivot — just enough parallax to
         // read as perspective, not enough to tear the plate.
         float depth = blurDepth(bgUv);
-        float nearField = smoothstep(0.05, 0.55, depth);
+        float nearField = smoothstep(0.05, uBgZoomThresh, depth);
 
         vec2 pivot = vec2(0.5, 0.40);
-        float bgZoom = 1.0 + dolly * (0.09 + 0.16 * nearField);
+        float bgZoom = 1.0 + dolly * depthZoomCoef(depth);
         vec2 bgSample = (bgUv - pivot) / bgZoom + pivot;
-        bgSample += vec2(0.0, dolly * -0.028) * nearField
-                  + uPointer * 0.006 * uMotion;
+        bgSample += vec2(0.0, dolly * uBgDriftNear) * nearField
+                  + uPointer * uBgPointerAmt * uMotion * nearField;
         bgSample = clamp(bgSample, 0.0, 1.0);
 
         vec3 color = grade(texture2D(uBg, bgSample).rgb, bgDark, sat);
         float coc = 1.0; // 1 = fully defocusable, 0 = held sharp
 
         // -------- giant "&" (mid ground, behind the couple) --------
-        if (uAmpReady > 0.5) {
-          vec2 spanWH = vec2(uAmpSpanH * uAmpAspect / screenRatio, uAmpSpanH);
-          vec2 centre = vec2(0.5, 0.60);
-          vec2 drift = uPointer * 0.018 * uMotion
-                     + vec2(0.0, dolly * -0.075);
-          float grow = 1.0 + dolly * 0.12;
+        // On wide viewports, sized to fit inside the names' own centre
+        // gap (uAmpGapFrac, measured exactly from the canvas layout in
+        // buildHeroText) with a small safety margin, so it never overlaps
+        // "Victoria"/"Micah". On mobile widths (uAmpFitGap = 0, see
+        // resize()) it's allowed to run bigger and overlap the names —
+        // there isn't room for a clear gap at that scale. Screen-blended
+        // at reduced strength so it reads as a soft glow behind the names
+        // instead of an opaque card competing with them.
+        if (uAmpReady > 0.5 && uNameReady > 0.5) {
+          float ampSpanW = mix(uNameSpanW * 0.9,
+                                uNameSpanW * uAmpGapFrac * 0.92,
+                                uAmpFitGap);
+          vec2 spanWH = vec2(ampSpanW, ampSpanW / uAmpAspect * screenRatio);
+          // Nudged right of dead-centre, toward "Micah": "Victoria" is
+          // the longer word, and the "&" glyph itself isn't optically
+          // centred in its own box, so a true 0.5 centre reads as
+          // slightly left-heavy. A little extra overlap onto "Micah" is
+          // fine here.
+          vec2 centre = vec2(0.52, 0.60);
+          vec2 drift = uPointer * uAmpPointerAmt * uMotion
+                     + vec2(0.0, dolly * uAmpDriftY);
+          // Sits nearer than the background's own near-field ground
+          // (saturates at 0.25) but behind the subjects (0.28) — must
+          // grow faster than 0.25 or the ground overtakes it in scale.
+          float grow = 1.0 + dolly * uAmpGrow;
           float fade = 1.0 - smoothstep(0.55, 0.92, uScroll);
           vec4 a = card(uAmp, spanWH, centre, drift, grow);
           float m = clamp(a.a, 0.0, 1.0) * fade * write;
-          color = mix(color, grade(a.rgb, midDark, sat), m);
+          vec3 ampLit = grade(a.rgb, midDark, sat) * (m * 0.5);
+          color = 1.0 - (1.0 - color) * (1.0 - ampLit);
           coc = mix(coc, 0.78, m);
         }
 
@@ -274,9 +499,10 @@ function initHero() {
         if (uNameReady > 0.5) {
           vec2 spanWH = vec2(uNameSpanW, uNameSpanW / uNameAspect * screenRatio);
           vec2 centre = vec2(0.5, 0.60);
-          vec2 drift = uPointer * 0.024 * uMotion
-                     + vec2(0.0, dolly * -0.115);
-          float grow = 1.0 + dolly * 0.10;
+          vec2 drift = uPointer * uNamePointerAmt * uMotion
+                     + vec2(0.0, dolly * uNameDriftY);
+          // Same mid-ground plane as the "&" — see grow note above.
+          float grow = 1.0 + dolly * uNameGrow;
           float fade = 1.0 - smoothstep(0.5, 0.86, uScroll);
           vec4 n = card(uName, spanWH, centre, drift, grow);
           float m = clamp(n.a, 0.0, 1.0) * fade * write;
@@ -285,12 +511,30 @@ function initHero() {
         }
 
         // -------- subjects layer (near plane) --------
-        // Rise and enlarge the most as the camera cranes in. Held
-        // sharpest, but by the end of the scroll they defocus too.
+        // Rise and enlarge as the camera cranes in, as one rigid card —
+        // this is a photograph of two people, not a landscape, so it
+        // can't be warped per-pixel by local depth the way the
+        // background is (that reads as distortion, not parallax, on a
+        // human figure). Calibrated from a depth sample near the couple's
+        // feet (sFeetSample) rather than at sPivot — sPivot sits around
+        // chest height (v~0.40; the couple's alpha mask spans roughly
+        // v 0.07-0.57, feet at the low end), which barely reads as "near"
+        // and would make this calibration a no-op. The feet/ground-
+        // contact point is what actually needs to agree with the
+        // background's own near-ground zoom, so that's what's sampled:
+        // starts from the same depthZoomCoef curve the background uses,
+        // plus an extra term for depth beyond the background's own
+        // near-ground cap (~0.55) — the couple's feet measure up to ~0.9
+        // in depthimage.png, nearer than the background ever gets.
         vec2 sPivot = vec2(0.5, 0.40);
-        float sGrow = 1.0 + dolly * 0.15;
-        vec2 subjDrift = uPointer * 0.030 * uMotion
-                       + vec2(0.0, dolly * -0.10);
+        vec2 sFeetSample = vec2(0.5, uSubjFeetY);
+        float sFeetDepth = texture2D(uSubjDepth, sFeetSample).r;
+        float sZoomCoef = (depthZoomCoef(sFeetDepth)
+                        + uSubjBoostAmt * smoothstep(uBgZoomThresh, uSubjBoostHi, sFeetDepth))
+                        * uSubjZoomMult;
+        float sGrow = 1.0 + dolly * sZoomCoef;
+        vec2 subjDrift = uPointer * uSubjPointerAmt * uMotion
+                       + vec2(0.0, dolly * uSubjDriftMult * sZoomCoef);
         vec2 subjSample = (base - sPivot) / sGrow + sPivot + subjDrift;
         vec4 s = texture2D(uSubj, subjSample);
         float sa = clamp(s.a, 0.0, 1.0);
@@ -365,6 +609,13 @@ function initHero() {
         if (radius < 0.75) {
           rgb = c0.rgb;
         } else {
+          // Gaussian falloff by sample distance, not by the neighbouring
+          // pixel's own sharpness — that's what made this read as a lens
+          // blur (bokeh: sharp neighbours refusing to bleed into blurry
+          // ones) rather than a plain blur. Sample positions still use a
+          // golden-angle disc (sqrt(t) radius) purely for even 2D
+          // coverage with few taps; only the weighting changed.
+          float sigma = radius * 0.5;
           vec3 acc = c0.rgb;
           float wsum = 1.0;
           for (int i = 0; i < TAPS; i++) {
@@ -373,7 +624,7 @@ function initHero() {
             float a = float(i) * GOLDEN;
             vec2 off = vec2(cos(a), sin(a)) * r * uTexel;
             vec4 sc = texture2D(uTex, vUv + off);
-            float w = sc.a; // sharp neighbours barely bleed outward
+            float w = exp(-(r * r) / (2.0 * sigma * sigma));
             acc += sc.rgb * w;
             wsum += w;
           }
@@ -389,6 +640,7 @@ function initHero() {
   buildHeroText(uniforms).catch((err) =>
     console.warn("Hero wordmark skipped:", err)
   );
+  buildDepthTuner(uniforms); // TEMPORARY — see function def below
 
   let maxBlurPx = 0;
   function resize() {
@@ -403,8 +655,8 @@ function initHero() {
     maxBlurPx = bh * MAX_BLUR_FRAC;
 
     const narrow = w < 700;
-    uniforms.uAmpSpanH.value = narrow ? 0.5 : 0.74;
     uniforms.uNameSpanW.value = narrow ? 0.94 : 0.88;
+    uniforms.uAmpFitGap.value = narrow ? 0 : 1;
   }
   window.addEventListener("resize", resize);
   resize();
@@ -532,7 +784,7 @@ async function buildHeroText(uniforms) {
   // faces the canvas needs are actually decoded before measuring.
   try {
     await Promise.all([
-      document.fonts.load(`italic 400 240px ${SERIF}`),
+      document.fonts.load(`italic 700 240px ${SERIF}`),
       document.fonts.load(`italic 300 240px ${SERIF}`),
     ]);
   } catch (err) {
@@ -570,34 +822,48 @@ async function buildHeroText(uniforms) {
     const ss = 4;
     const fontPx = 94 * ss;
     const padY = 30 * ss;
-    const font = `italic 400 ${fontPx}px ${SERIF}`;
+    const font = `italic 700 ${fontPx}px ${SERIF}`;
 
     const gauge = document.createElement("canvas").getContext("2d");
     gauge.font = font;
-    const wV = gauge.measureText("Victoria").width;
-    const wM = gauge.measureText("Micah").width;
+    // measureText's .width is the font's advance width, not the actual
+    // ink extent — for an italic bold face "V" and "h" have different
+    // side-bearings, so centering on advance width alone leaves visibly
+    // unequal outer margins. actualBoundingBoxLeft/Right (measured with
+    // the same textAlign used to draw each word) gives the real ink
+    // overhang past that anchor, so the margins below land on equal
+    // visible space, not just equal logical space.
+    gauge.textAlign = "left";
+    const vMetrics = gauge.measureText("Victoria");
+    const wV = vMetrics.width;
+    const vLeftInk = vMetrics.actualBoundingBoxLeft;
+    gauge.textAlign = "right";
+    const mMetrics = gauge.measureText("Micah");
+    const wM = mMetrics.width;
+    const mRightInk = mMetrics.actualBoundingBoxRight;
     // A centre gap wide enough for the "&" to sit clear between them.
     const gap = (wV + wM) * 0.85;
     const totalW = wV + gap + wM;
+    const margin = fontPx * 0.3;
 
     const cv = document.createElement("canvas");
-    cv.width = Math.ceil(totalW) + fontPx * 0.6;
+    cv.width = Math.ceil(totalW + margin * 2 + vLeftInk + mRightInk);
     cv.height = Math.ceil(fontPx * 1.34) + padY * 2;
     const ctx = cv.getContext("2d");
     ctx.font = font;
     ctx.textBaseline = "middle";
-    ctx.fillStyle = "#F6F3EC";
-    ctx.shadowColor = "rgba(18, 18, 16, 0.34)";
-    ctx.shadowBlur = 22 * ss;
-    ctx.shadowOffsetY = 5 * ss;
-    const inset = (cv.width - totalW) / 2;
+    ctx.fillStyle = "#ffffff";
+    ctx.shadowColor = "rgba(18, 18, 16, 0.18)";
+    ctx.shadowBlur = 14 * ss;
+    ctx.shadowOffsetY = 3 * ss;
     ctx.textAlign = "left";
-    ctx.fillText("Victoria", inset, cv.height / 2);
+    ctx.fillText("Victoria", margin + vLeftInk, cv.height / 2);
     ctx.textAlign = "right";
-    ctx.fillText("Micah", cv.width - inset, cv.height / 2);
+    ctx.fillText("Micah", cv.width - margin - mRightInk, cv.height / 2);
 
     uniforms.uName.value = makeTex(cv);
     uniforms.uNameAspect.value = cv.width / cv.height;
+    uniforms.uAmpGapFrac.value = gap / cv.width;
     uniforms.uNameReady.value = 1;
   }
 }

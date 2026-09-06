@@ -44,7 +44,7 @@ const RSVP_DEADLINE = (function () {
 })();
 
 if (deadlineEl) {
-  deadlineEl.textContent = `Save the date. Please kindly reply by ${RSVP_DEADLINE.label}.`;
+  deadlineEl.textContent = `Can you make it? Please kindly reply by ${RSVP_DEADLINE.label}.`;
 }
 
 // ---------------------------------------------------------------
@@ -169,12 +169,14 @@ function showDone(response, message) {
   doneCopyEl.textContent = message;
   if (calActionsEl) calActionsEl.hidden = response !== "yes";
   if (form) form.hidden = true;
+  if (deadlineEl) deadlineEl.hidden = true;
   doneEl.hidden = false;
   setStatus("", "");
 }
 
 function showForm() {
   if (doneEl) doneEl.hidden = true;
+  if (deadlineEl) deadlineEl.hidden = false;
   if (form) {
     form.hidden = false;
     form.reset();
