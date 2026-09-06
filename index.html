@@ -1,92 +1,71 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Victoria &amp; Micah — Save the Date</title>
-  <meta name="description" content="Victoria and Micah are getting married. Save the date." />
-
-  <!-- Fonts: Fraunces for display, Inter for body -->
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-
-  <link rel="stylesheet" href="styles.css" />
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Victoria &amp; Micah — Save the Date</title>
+<meta name="description" content="Save the date for Victoria &amp; Micah's wedding.">
+<link rel="preload" href="assets/font/BradfordLL-Regular.otf" as="font" type="font/otf" crossorigin>
+<link rel="preload" href="assets/font/BradfordLL-Light.otf" as="font" type="font/otf" crossorigin>
+<link rel="stylesheet" href="styles.css">
 </head>
 <body>
 
-  <!-- HERO -->
-  <section class="hero">
-    <div class="hero-inner" id="hero-reveal">
-      <p class="hero-kicker">Together with their families</p>
-      <h1 class="hero-names">Victoria <span class="amp">&amp;</span> Micah</h1>
-      <p class="hero-line">are getting married</p>
-
-      <div class="hero-date">
-        <span class="hero-date-main">June 20, 2027</span>
-        <span class="hero-date-sub">Sonoma County, California</span>
-      </div>
-
-      <a href="#details" class="hero-scroll">Details below</a>
+<section class="hero" aria-label="Victoria and Micah">
+  <div class="hero__stage">
+    <canvas id="hero-canvas"></canvas>
+    <div class="hero__overlay">
+      <h1 class="visually-hidden">Victoria &amp; Micah</h1>
+      <p class="hero__cue" aria-hidden="true"><span>Scroll</span></p>
     </div>
-  </section>
+  </div>
+</section>
 
-  <!-- DETAILS -->
-  <section class="details" id="details">
-    <div class="details-grid">
-      <div class="details-block">
-        <h2>When</h2>
-        <p>Sunday, June 20, 2027</p>
-        <p class="muted">Formal invitation with ceremony time to follow</p>
-      </div>
-      <div class="details-block">
-        <h2>Where</h2>
-        <p>Sonoma County, California</p>
-        <p class="muted">Exact venue coming soon</p>
-      </div>
-      <div class="details-block">
-        <h2>Stay in touch</h2>
-        <p>Leave your email below</p>
-        <p class="muted">We'll send the invitation and hotel info as plans firm up</p>
-      </div>
-    </div>
-  </section>
+<main>
 
-  <!-- RSVP / NOTIFY FORM -->
-  <section class="notify" id="notify">
-    <div class="notify-inner">
-      <h2>Want the full invitation when it's ready?</h2>
-      <p class="muted">Drop your email and we'll let you know the moment details go live. No spam, just wedding updates.</p>
+  <header class="rsvp-copy">
+    <p class="rsvp-copy__kicker write-on">Save the Date</p>
+    <p class="rsvp-copy__date write-on">Sept. 25, 2027</p>
+    <p id="deadline-text" class="deadline-text">Save the date. Please kindly reply soon.</p>
+  </header>
 
-      <form id="notify-form" class="notify-form" novalidate>
-        <div class="field-row">
-          <label for="name" class="visually-hidden">Your name</label>
-          <input type="text" id="name" name="name" placeholder="Your name" autocomplete="name" required />
-
-          <label for="email" class="visually-hidden">Email address</label>
-          <input type="email" id="email" name="email" placeholder="you@example.com" autocomplete="email" required />
+  <section class="rsvp">
+    <form id="rsvp-form" novalidate>
+      <div class="field-row">
+        <div class="field">
+          <label class="visually-hidden" for="first-name">First name</label>
+          <input type="text" id="first-name" name="firstName" placeholder="First name" autocomplete="given-name" required>
         </div>
+        <div class="field">
+          <label class="visually-hidden" for="last-name">Last name</label>
+          <input type="text" id="last-name" name="lastName" placeholder="Last name" autocomplete="family-name" required>
+        </div>
+      </div>
 
-        <label for="guests" class="visually-hidden">Estimated party size</label>
-        <select id="guests" name="guests">
-          <option value="" disabled selected>Estimated party size</option>
-          <option value="1">Just me</option>
-          <option value="2">2 guests</option>
-          <option value="3">3 guests</option>
-          <option value="4+">4 or more</option>
-        </select>
+      <div class="actions">
+        <button type="button" id="no-btn" class="btn btn-no">Sorry, can't make it</button>
+        <button type="button" id="yes-btn" class="btn btn-yes">Yes, save the date</button>
+      </div>
 
-        <button type="submit" class="submit-btn">Notify me</button>
+      <p id="form-status" role="status" aria-live="polite"></p>
+    </form>
 
-        <p class="form-status" id="form-status" role="status" aria-live="polite"></p>
-      </form>
+    <div id="rsvp-done" class="rsvp-done" hidden>
+      <p id="rsvp-done-copy" class="rsvp-done__copy"></p>
+
+      <div id="calendar-actions" class="calendar-actions" hidden>
+        <p class="calendar-actions__label">Add it to your calendar</p>
+        <a id="cal-google" class="cal-btn" target="_blank" rel="noopener">Google Calendar</a>
+        <a id="cal-ics" class="cal-btn" download="victoria-and-micah-save-the-date.ics">Apple, Outlook &amp; others (.ics)</a>
+      </div>
+
+      <button type="button" id="rsvp-redo" class="linkish">Picked the wrong button? Reply again</button>
     </div>
   </section>
 
-  <footer class="site-footer">
-    <p>Victoria &amp; Micah · June 2027</p>
-  </footer>
+</main>
 
-  <script src="script.js"></script>
+<script type="module" src="hero.js"></script>
+<script src="script.js"></script>
 </body>
 </html>

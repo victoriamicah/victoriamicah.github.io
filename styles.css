@@ -1,307 +1,500 @@
-/* ============================================
-   TOKENS
-   ============================================ */
+/* ---------------------------------------------------------------
+   Bradford LL — the site typeface (assets/font/)
+   --------------------------------------------------------------- */
+
+@font-face {
+  font-family: "Bradford LL";
+  src: url("assets/font/BradfordLL-Light.otf") format("opentype");
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Bradford LL";
+  src: url("assets/font/BradfordLL-LightItalic.otf") format("opentype");
+  font-weight: 300;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Bradford LL";
+  src: url("assets/font/BradfordLL-Regular.otf") format("opentype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Bradford LL";
+  src: url("assets/font/BradfordLL-Italic.otf") format("opentype");
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Bradford LL";
+  src: url("assets/font/BradfordLL-Medium.otf") format("opentype");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Bradford LL";
+  src: url("assets/font/BradfordLL-Bold.otf") format("opentype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
-  --paper: #FBF6EF;
-  --paper-deep: #F3EBDD;
-  --ink: #2B2320;
-  --plum: #6B2737;
-  --plum-deep: #4E1C29;
-  --sage: #7C8B6F;
-  --gold-line: #B08D57;
-
-  --font-display: 'Fraunces', serif;
-  --font-body: 'Inter', sans-serif;
-
-  --measure: 62ch;
+  --serif: "Bradford LL", Georgia, "Times New Roman", serif;
+  --ivory: #F5F2EA;
+  --ink: #2B2B26;
+  --ink-soft: #55534A;
+  --moss: #55684D;
+  --moss-dark: #3B4A36;
+  --outline: #BDB6A3;
+  --bloom: #C97B76;
+  --bloom-dark: #8E4A46;
+  --vase: #8A9680;
+  --card: #FFFDF8;
+  --focus: #4C7A93;
+  /* Deep cerulean pulled from Victoria's dress, darkened enough that
+     white text clears WCAG AA. Tune against assets/hero-web.jpg. */
+  --cerulean: #1A6B87;
+  --cerulean-dark: #145974;
 }
 
-* { box-sizing: border-box; }
-
-html {
-  scroll-behavior: smooth;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  html { scroll-behavior: auto; }
-  * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
-}
-
-body {
-  margin: 0;
-  background: var(--paper);
-  color: var(--ink);
-  font-family: var(--font-body);
-  line-height: 1.5;
-  -webkit-font-smoothing: antialiased;
+* {
+  box-sizing: border-box;
 }
 
 .visually-hidden {
   position: absolute;
-  width: 1px; height: 1px;
-  padding: 0; margin: -1px;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
   overflow: hidden;
-  clip: rect(0,0,0,0);
+  clip: rect(0 0 0 0);
   white-space: nowrap;
   border: 0;
 }
 
-/* ============================================
-   HERO
-   ============================================ */
-.hero {
+body {
+  margin: 0;
   min-height: 100vh;
+  background: var(--ivory);
+  color: var(--ink);
+  font-family: var(--serif);
+}
+
+main {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 34rem;
+  margin: 0 auto;
+  /* Transparent — the copy sits straight on the blurred hero, the only
+     glass panel is the .rsvp form itself. */
+  padding: 8vh 1.25rem 22vh;
   display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2rem;
+}
+
+/* ---------------------------------------------------------------
+   Hero — 3D depth parallax (see hero.js)
+   .hero gives the crane-in its scroll distance; .hero__stage is a fixed
+   full-viewport backdrop. The crane + progressive blur play out, then
+   the frosted <main> sheet scrolls up over the still-blurred hero.
+   --------------------------------------------------------------- */
+
+.hero {
+  height: 175vh;
+}
+
+.hero__stage {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  /* Fallback shown until (or unless) hero.js paints the canvas. */
+  background: var(--ink) url("assets/hero-web.jpg") center 30% / cover no-repeat;
+}
+
+#hero-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.hero__overlay {
+  --p: 0;
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   text-align: center;
-  padding: 6rem 1.5rem;
-  background:
-    radial-gradient(ellipse at top, var(--paper-deep) 0%, var(--paper) 60%);
-  position: relative;
+  padding: 2rem;
+  color: var(--ivory);
+  /* Drift up and fade as the hero scrolls past. */
+  transform: translateY(calc(var(--p) * -12vh));
+  opacity: calc(1 - var(--p) * 1.6);
+  will-change: transform, opacity;
 }
 
-.hero::after {
-  content: "";
+/* The hero title ("Victoria & Micah") is drawn by hero.js as WebGL
+   layers, not DOM text — the <h1> is visually hidden for a11y only. */
+
+.hero__cue {
   position: absolute;
-  left: 50%;
-  bottom: 3.5rem;
-  transform: translateX(-50%);
-  width: 1px;
-  height: 2.5rem;
-  background: var(--gold-line);
-  opacity: 0.6;
-}
-
-.hero-inner {
-  max-width: 40rem;
-  opacity: 0;
-  transform: translateY(14px);
-  animation: reveal 1.1s cubic-bezier(0.22, 1, 0.36, 1) forwards;
-  animation-delay: 0.15s;
-}
-
-@keyframes reveal {
-  to { opacity: 1; transform: translateY(0); }
-}
-
-.hero-kicker {
-  font-family: var(--font-body);
-  font-size: 0.95rem;
-  letter-spacing: 0.02em;
-  color: var(--sage);
-  margin: 0 0 1.25rem;
-}
-
-.hero-names {
-  font-family: var(--font-display);
-  font-optical-sizing: auto;
-  font-weight: 500;
-  font-size: clamp(2.75rem, 8vw, 5.5rem);
-  line-height: 1.05;
+  bottom: 2.2rem;
   margin: 0;
-  color: var(--plum-deep);
+  font-size: 0.72rem;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  opacity: calc(0.85 - var(--p) * 3);
 }
 
-.hero-names .amp {
-  font-style: italic;
+.hero__cue span {
+  display: inline-block;
+  animation: hero-cue 2.4s ease-in-out infinite;
+}
+
+@keyframes hero-cue {
+  0%, 100% { transform: translateY(0); opacity: 0.55; }
+  50% { transform: translateY(5px); opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero__cue span { animation: none; }
+}
+
+/* Copy that sits straight on the blurred hero, above the glass form. */
+.rsvp-copy {
+  text-align: center;
+  color: var(--ivory);
+  text-shadow: 0 1px 2px rgba(18, 18, 16, 0.55),
+    0 2px 28px rgba(18, 18, 16, 0.45);
+}
+
+.rsvp-copy__kicker {
+  margin: 0 0 0.6rem;
+  font-size: 0.78rem;
+  letter-spacing: 0.36em;
+  text-transform: uppercase;
+  opacity: 0.92;
+}
+
+.rsvp-copy__date {
+  margin: 0 0 1.5rem;
+  font-family: var(--serif);
   font-weight: 400;
-  color: var(--sage);
-  padding: 0 0.15em;
-}
-
-.hero-line {
-  font-family: var(--font-display);
   font-style: italic;
-  font-size: clamp(1.1rem, 2.5vw, 1.5rem);
-  color: var(--ink);
-  margin: 0.75rem 0 2.5rem;
+  font-size: clamp(2.6rem, 9vw, 4.2rem);
+  line-height: 1;
+  white-space: nowrap;
 }
 
-.hero-date {
+/* ---------------------------------------------------------------
+   Write-on — a soft pen edge sweeps left to right, so the letters
+   draw themselves in. Matches the hero's WebGL write-on (hero.js).
+   --------------------------------------------------------------- */
+
+.write-on {
+  -webkit-mask-image: linear-gradient(to right, #000 0 38%, transparent 62%);
+  mask-image: linear-gradient(to right, #000 0 38%, transparent 62%);
+  -webkit-mask-size: 260% 100%;
+  mask-size: 260% 100%;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: 100% 0;
+  mask-position: 100% 0;
+}
+
+.write-on.is-written {
+  transition: -webkit-mask-position 1.5s cubic-bezier(0.62, 0.02, 0.24, 1),
+    mask-position 1.5s cubic-bezier(0.62, 0.02, 0.24, 1);
+  -webkit-mask-position: 0 0;
+  mask-position: 0 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .write-on {
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+}
+
+.arrangement-wrap {
+  width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
-  padding-top: 1.75rem;
-  border-top: 1px solid var(--gold-line);
+  align-items: center;
+  gap: 0.75rem;
 }
 
-.hero-date-main {
-  font-family: var(--font-display);
-  font-size: 1.35rem;
-  font-weight: 600;
+#arrangement {
+  width: 100%;
+  max-width: 26rem;
+  height: auto;
 }
 
-.hero-date-sub {
-  font-size: 0.95rem;
-  color: var(--ink);
+.vase {
+  fill: var(--vase);
+  opacity: 0.85;
+}
+
+.branch {
+  fill: none;
+  stroke: var(--moss);
+  stroke-width: 1.4;
+  stroke-linecap: round;
   opacity: 0.7;
 }
 
-.hero-scroll {
-  display: inline-block;
-  margin-top: 3rem;
-  font-size: 0.85rem;
-  color: var(--plum);
-  text-decoration: none;
-  border-bottom: 1px solid transparent;
-  transition: border-color 0.2s ease;
+.flower .petal {
+  transition: fill 0.4s ease, stroke 0.4s ease;
 }
 
-.hero-scroll:hover,
-.hero-scroll:focus-visible {
-  border-bottom-color: var(--plum);
+.flower .center {
+  transition: fill 0.4s ease;
 }
 
-/* ============================================
-   DETAILS
-   ============================================ */
-.details {
-  background: var(--plum-deep);
-  color: var(--paper);
-  padding: 5rem 1.5rem;
+@media (prefers-reduced-motion: reduce) {
+  .flower .petal,
+  .flower .center {
+    transition: none;
+  }
 }
 
-.details-grid {
-  max-width: 62rem;
-  margin: 0 auto;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 3rem;
-  text-align: left;
+.flower-pending .petal {
+  fill: none;
+  stroke: var(--outline);
+  stroke-width: 1;
 }
 
-.details-block h2 {
-  font-family: var(--font-display);
-  font-weight: 500;
-  font-size: 1.35rem;
-  margin: 0 0 0.9rem;
-  color: var(--paper);
+.flower-pending .center {
+  fill: none;
+  stroke: var(--outline);
+  stroke-width: 1;
 }
 
-.details-block p {
-  margin: 0 0 0.4rem;
-  font-size: 1rem;
+.flower-bloomed .petal {
+  fill: var(--bloom);
+  stroke: var(--bloom-dark);
+  stroke-width: 0.6;
 }
 
-.details-block .muted {
-  opacity: 0.65;
-  font-size: 0.9rem;
+.flower-bloomed .center {
+  fill: var(--bloom-dark);
 }
 
-/* ============================================
-   NOTIFY FORM
-   ============================================ */
-.notify {
-  padding: 6rem 1.5rem;
-  background: var(--paper);
+.flower-removed {
+  opacity: 0.12;
 }
 
-.notify-inner {
-  max-width: 34rem;
-  margin: 0 auto;
+.tally-caption {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--ink-soft);
+}
+
+/* The one glass panel: just the name fields + yes/no buttons. */
+.rsvp {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.62);
+  backdrop-filter: blur(28px) saturate(1.15);
+  -webkit-backdrop-filter: blur(28px) saturate(1.15);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: 16px;
+  padding: 1.75rem;
+  box-shadow: 0 16px 50px rgba(20, 20, 18, 0.2);
+}
+
+.deadline-text {
+  margin: 0;
+  font-size: 0.95rem;
   text-align: center;
-}
-
-.notify-inner h2 {
-  font-family: var(--font-display);
-  font-weight: 500;
-  font-size: clamp(1.5rem, 3vw, 2rem);
-  margin: 0 0 0.75rem;
-  color: var(--plum-deep);
-}
-
-.notify-inner .muted {
-  color: var(--ink);
-  opacity: 0.65;
-  max-width: var(--measure);
-  margin: 0 auto 2.25rem;
-  font-size: 0.98rem;
-}
-
-.notify-form {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  align-items: stretch;
+  opacity: 0.9;
 }
 
 .field-row {
   display: flex;
   gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.field {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.field input {
+  font-family: inherit;
+  font-size: 1rem;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid rgba(0,0,0,0.18);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--ink);
+}
+
+.field input::placeholder {
+  color: var(--ink-soft);
+  opacity: 0.7;
+}
+
+.field input:focus-visible,
+.btn:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.actions {
+  display: flex;
+  gap: 0.75rem;
   flex-wrap: wrap;
 }
 
-.field-row input {
-  flex: 1 1 200px;
-}
-
-input, select {
-  font-family: var(--font-body);
-  font-size: 1rem;
-  padding: 0.85rem 1rem;
-  border: 1px solid rgba(43, 35, 32, 0.25);
-  background: #fff;
-  color: var(--ink);
-  border-radius: 2px;
-}
-
-input:focus-visible,
-select:focus-visible,
-button:focus-visible,
-a:focus-visible {
-  outline: 2px solid var(--plum);
-  outline-offset: 2px;
-}
-
-.submit-btn {
-  font-family: var(--font-body);
-  font-weight: 600;
-  font-size: 1rem;
-  padding: 0.9rem 1.5rem;
-  background: var(--plum);
-  color: var(--paper);
-  border: none;
-  border-radius: 2px;
+.btn {
+  flex: 1;
+  min-width: 10rem;
+  font-family: inherit;
+  font-size: 0.9rem;
+  padding: 0.75rem 1rem;
+  border-radius: 6px;
   cursor: pointer;
-  transition: background 0.2s ease;
+  border: 1.5px solid transparent;
+  transition: background-color 0.15s ease, opacity 0.15s ease;
 }
 
-.submit-btn:hover {
-  background: var(--plum-deep);
+.btn-yes {
+  background: var(--cerulean);
+  color: #fff;
 }
 
-.submit-btn:disabled {
-  opacity: 0.6;
+.btn-yes:hover {
+  background: var(--cerulean-dark);
+}
+
+.btn-no {
+  background: transparent;
+  border-color: var(--ink-soft); /* matches the button's own text colour */
+  color: var(--ink-soft);
+}
+
+.btn-no:hover {
+  border-color: var(--ink);
+  color: var(--ink);
+}
+
+.btn:disabled {
+  opacity: 0.55;
   cursor: not-allowed;
 }
 
-.form-status {
-  min-height: 1.2em;
-  font-size: 0.9rem;
-  margin: 0;
-}
-
-.form-status.success { color: var(--sage); }
-.form-status.error { color: var(--plum); }
-
-/* ============================================
-   FOOTER
-   ============================================ */
-.site-footer {
-  text-align: center;
-  padding: 2.5rem 1.5rem;
-  background: var(--paper-deep);
-  color: var(--ink);
-  opacity: 0.6;
+#form-status {
+  min-height: 1.2rem;
+  margin: 0.9rem 0 0;
   font-size: 0.85rem;
+  text-align: center;
 }
 
-/* ============================================
-   RESPONSIVE
-   ============================================ */
-@media (max-width: 480px) {
-  .hero { padding: 4rem 1.25rem; }
-  .details, .notify { padding: 3.5rem 1.25rem; }
-  .field-row { flex-direction: column; }
+#form-status[data-state="success"] {
+  color: var(--moss-dark);
+}
+
+#form-status[data-state="error"] {
+  color: var(--bloom-dark);
+}
+
+/* ---------------------------------------------------------------
+   Post-response panel — swaps in for the form once someone replies.
+   --------------------------------------------------------------- */
+
+.rsvp-done {
+  text-align: center;
+}
+
+.rsvp-done__copy {
+  margin: 0 0 1.5rem;
+  font-size: 1rem;
+  line-height: 1.55;
+}
+
+.calendar-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.calendar-actions__label {
+  margin: 0 0 0.1rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.cal-btn {
+  display: block;
+  padding: 0.7rem 1rem;
+  border-radius: 6px;
+  border: 1.5px solid var(--outline);
+  background: rgba(255, 255, 255, 0.35);
+  color: var(--ink);
+  font-size: 0.9rem;
+  text-decoration: none;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.cal-btn:hover {
+  border-color: var(--ink-soft);
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.cal-btn:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.linkish {
+  margin-top: 1.25rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 0.8rem;
+  color: var(--ink-soft);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.linkish:hover {
+  color: var(--ink);
+}
+
+@media (max-width: 420px) {
+  .field-row {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .rsvp {
+    padding: 1.25rem;
+  }
 }
