@@ -20,15 +20,18 @@
 //                            enlarges the most, held sharpest until the
 //                            very end when everything defocuses.
 //
-// Two passes: composite -> half-float render target -> Gaussian blur ->
-// screen. Falls back to a plain cover image if WebGL or
-// the Three.js module fails to load (see .hero__stage in styles.css).
+// Three passes: composite -> half-float render target -> separable
+// Gaussian blur (horizontal, then vertical) -> screen. Falls back to a
+// flat colour (not the photo — avoids a crop mismatch on handoff) if
+// WebGL or the Three.js module fails to load, or while assets are still
+// loading (see .hero__stage in styles.css).
 // ---------------------------------------------------------------
 
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.js";
 
 const canvas = document.getElementById("hero-canvas");
 const heroEl = document.querySelector(".hero");
+const stageEl = document.querySelector(".hero__stage");
 const overlayEl = document.querySelector(".hero__overlay");
 
 // assets/Subjects.png is the full photo framing (3131x4007). The
@@ -42,6 +45,18 @@ const BG_X_SQUEEZE = 0.9556; // (896/1200) / (3131/4007)
 
 // Blur radius at full scroll, as a fraction of the drawing buffer height.
 const MAX_BLUR_FRAC = 0.017;
+
+// Small CSS blur (px, in real screen pixels — not scaled by dpr like the
+// WebGL blur is) layered over the *entire* canvas late in the scroll.
+// The subject is held sharp in the WebGL composite itself (see coc = 0
+// on it in the composite shader) so it needs some other way to soften
+// by the time <main> takes over — rather than reintroducing a WebGL
+// blur pass on it (which is what caused the bloom/ghosting artifacts
+// this was built to avoid), a small native CSS blur over everything
+// gives the subject that same "hazes out at the end" cue for free. It's
+// deliberately small: the background is already blurred by the WebGL
+// passes, so this just adds a little on top of that too.
+const CSS_BLUR_MAX_PX = 4;
 
 // The crane-in completes over this many viewport heights of scroll; past
 // it the hero holds fully blurred as a backdrop for the content above.
@@ -183,7 +198,10 @@ if (canvas && heroEl) {
   try {
     initHero();
   } catch (err) {
-    // Leave the CSS cover-image fallback in place.
+    // initHero() failed synchronously (e.g. WebGL context creation
+    // failed) — we know for certain now it'll never paint, so reveal
+    // the real photo immediately rather than waiting on the timeout.
+    if (stageEl) stageEl.classList.add("show-fallback-image");
     console.warn("Hero parallax disabled:", err);
   }
 }
@@ -198,7 +216,10 @@ function initHero() {
     antialias: false, // the blur pass is the resolve
     alpha: true,
   });
-  const dpr = Math.min(window.devicePixelRatio || 1, 1.75);
+  const dpr = Math.min(
+    window.devicePixelRatio || 1,
+    window.innerWidth < 700 ? 1.5 : 1.75
+  );
   renderer.setPixelRatio(dpr);
 
   const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
@@ -263,7 +284,14 @@ function initHero() {
   const loader = new THREE.TextureLoader();
   let loaded = 0;
   const markLoaded = () => {
-    if (++loaded === 4) uniforms.uReady.value = 1;
+    if (++loaded === 4) {
+      uniforms.uReady.value = 1;
+      // Fade the canvas in over the CSS fallback rather than snapping to
+      // it — their crops are close but not pixel-identical (see
+      // .hero__stage's comment in styles.css), so a hard cut would still
+      // show a small jump even with that position matched.
+      canvas.classList.add("is-ready");
+    }
   };
 
   loader.load("assets/bg-web.jpg", (t) => {
@@ -420,9 +448,9 @@ function initHero() {
         // mid-ground next, the couple last and least — so depth keeps
         // separating even as the whole frame sinks into a backdrop.
         float sat      = 1.0 + smoothstep(0.08, 1.0, uScroll) * 0.5;
-        float bgDark   = smoothstep(0.02, 0.62, uScroll);
+        float bgDark   = smoothstep(0.02, 0.62, uScroll) * 0.75;
         float midDark  = smoothstep(0.22, 0.80, uScroll) * 0.85;
-        float subjDark = smoothstep(0.50, 1.00, uScroll) * 0.62;
+        float subjDark = smoothstep(0.50, 1.00, uScroll) * 0.40;
 
         // Write-on: a soft, slightly raked pen edge sweeps left to right
         // across the frame, so "Victoria" draws in, then the "&", then
@@ -540,8 +568,10 @@ function initHero() {
         float sa = clamp(s.a, 0.0, 1.0);
         color = mix(color, grade(s.rgb, subjDark, sat), sa);
 
-        float subjBlur = smoothstep(0.5, 1.0, uScroll); // both layers by the end
-        coc = mix(coc, mix(0.12, 0.92, subjBlur), sa);
+        // Subject stays held sharp for the whole scroll — no blur pass
+        // applied to it at all (radius = uMaxBlur * 0.0 always trips the
+        // radius < 0.75 bypass in the blur shader, so it's free too).
+        coc = mix(coc, 0.0, sa);
 
         gl_FragColor = vec4(color, coc);
       }
@@ -550,7 +580,18 @@ function initHero() {
 
   scene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), compositeMaterial));
 
-  // --- pass 2: depth-of-field blur ---------------------------------
+  // --- pass 2 & 3: depth-of-field blur, separable (horizontal, then
+  // vertical) — a single-pass 2D golden-angle disc sample (10 taps) was
+  // tried first, but with so few samples scattered around a ring, sharp
+  // edges (the subject's silhouette, the name-text strokes) showed up as
+  // visibly duplicated/ghosted lines instead of a smooth smear. A
+  // separable Gaussian samples along a straight line in each pass
+  // instead of a sparse ring, which is both smoother (true Gaussian
+  // falloff, no gaps) and cheaper per unit of quality (cost grows
+  // linearly with samples-per-axis, not quadratically with disc
+  // coverage). Both passes use the exact same per-pixel variable radius
+  // (uMaxBlur * coc) the single-pass version did — only how that radius
+  // gets sampled changed, not which pixels blur how much or when.
   const rt = new THREE.WebGLRenderTarget(2, 2, {
     minFilter: THREE.LinearFilter,
     magFilter: THREE.LinearFilter,
@@ -558,35 +599,34 @@ function initHero() {
     depthBuffer: false,
     stencilBuffer: false,
   });
+  const rt2 = new THREE.WebGLRenderTarget(2, 2, {
+    minFilter: THREE.LinearFilter,
+    magFilter: THREE.LinearFilter,
+    type: THREE.HalfFloatType,
+    depthBuffer: false,
+    stencilBuffer: false,
+  });
 
-  const blurScene = new THREE.Scene();
-  const blurUniforms = {
-    uTex: { value: rt.texture },
-    uTexel: { value: new THREE.Vector2(0.5, 0.5) },
-    uMaxBlur: { value: 0 },
-  };
-  const blurMaterial = new THREE.ShaderMaterial({
-    uniforms: blurUniforms,
-    depthTest: false,
-    depthWrite: false,
-    vertexShader: `
-      varying vec2 vUv;
-      void main() {
-        vUv = uv;
-        gl_Position = vec4(position.xy, 0.0, 1.0);
-      }
-    `,
-    fragmentShader: `
+  // Shared 1D Gaussian sampling loop. AXIS is (1,0) for the horizontal
+  // pass, (0,1) for the vertical pass — each pass only blurs along one
+  // line, which is what makes this separable. sigma = radius * 0.5 (same
+  // convention as before) makes the per-sample weight a function of the
+  // normalized offset t alone (independent of radius), so it simplifies
+  // to exp(-2 * t * t).
+  function blurFragmentShader(axis, encodeOutput) {
+    return `
       precision highp float;
 
       varying vec2 vUv;
-      uniform sampler2D uTex;   // rgb = composite, a = circle of confusion
-      uniform vec2 uTexel;      // 1 / drawing-buffer size
+      uniform sampler2D uTex;   // rgb = composite (or H-pass result), a = coc
+      uniform vec2 uTexel;      // 1 / source texture size
       uniform float uMaxBlur;   // px, scroll-ramped
 
-      #define TAPS 16
-      const float GOLDEN = 2.399963229;
+      #define TAPS 9
 
+      ${
+        encodeOutput
+          ? `
       // Linear-light -> sRGB. The composite is sampled from sRGB textures
       // (hardware-decoded to linear), rendered into a linear half-float
       // target and blurred here in linear. Three.js does NOT encode a
@@ -600,6 +640,9 @@ function initHero() {
           step(c, vec3(0.0031308))
         );
       }
+      `
+          : ""
+      }
 
       void main() {
         vec4 c0 = texture2D(uTex, vUv);
@@ -609,52 +652,111 @@ function initHero() {
         if (radius < 0.75) {
           rgb = c0.rgb;
         } else {
-          // Gaussian falloff by sample distance, not by the neighbouring
-          // pixel's own sharpness — that's what made this read as a lens
-          // blur (bokeh: sharp neighbours refusing to bleed into blurry
-          // ones) rather than a plain blur. Sample positions still use a
-          // golden-angle disc (sqrt(t) radius) purely for even 2D
-          // coverage with few taps; only the weighting changed.
-          float sigma = radius * 0.5;
-          vec3 acc = c0.rgb;
-          float wsum = 1.0;
+          vec3 acc = vec3(0.0);
+          float wsum = 0.0;
           for (int i = 0; i < TAPS; i++) {
-            float t = (float(i) + 0.5) / float(TAPS);
-            float r = sqrt(t) * radius;
-            float a = float(i) * GOLDEN;
-            vec2 off = vec2(cos(a), sin(a)) * r * uTexel;
+            float t = (float(i) / float(TAPS - 1)) * 2.0 - 1.0; // -1..1
+            float w = exp(-2.0 * t * t);
+            vec2 off = ${axis} * t * radius * uTexel;
             vec4 sc = texture2D(uTex, vUv + off);
-            float w = exp(-(r * r) / (2.0 * sigma * sigma));
+            // Down-weight samples that land on held-sharp pixels (coc
+            // near 0, i.e. the subject) so a blurring background pixel
+            // near the subject's silhouette doesn't pull the subject's
+            // crisp color into itself — that bleed is what read as a
+            // soft bloom/halo hugging the subject's edge.
+            w *= smoothstep(0.05, 0.3, sc.a);
             acc += sc.rgb * w;
             wsum += w;
           }
-          rgb = acc / wsum;
+          // Guard against an all-subject neighborhood (e.g. a thin sliver
+          // of background squeezed between two subject regions) zeroing
+          // every weight and dividing by zero.
+          rgb = wsum > 0.001 ? acc / wsum : c0.rgb;
         }
 
-        gl_FragColor = vec4(linearToSRGB(rgb), 1.0);
+        gl_FragColor = vec4(${encodeOutput ? "linearToSRGB(rgb)" : "rgb"}, ${
+      encodeOutput ? "1.0" : "c0.a"
+    });
       }
-    `,
+    `;
+  }
+
+  const blurVertexShader = `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = vec4(position.xy, 0.0, 1.0);
+    }
+  `;
+
+  const blurUniformsH = {
+    uTex: { value: rt.texture },
+    uTexel: { value: new THREE.Vector2(0.5, 0.5) },
+    uMaxBlur: { value: 0 },
+  };
+  const blurMaterialH = new THREE.ShaderMaterial({
+    uniforms: blurUniformsH,
+    depthTest: false,
+    depthWrite: false,
+    vertexShader: blurVertexShader,
+    fragmentShader: blurFragmentShader("vec2(1.0, 0.0)", false),
   });
-  blurScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), blurMaterial));
+  const blurSceneH = new THREE.Scene();
+  blurSceneH.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), blurMaterialH));
+
+  const blurUniformsV = {
+    uTex: { value: rt2.texture },
+    uTexel: { value: new THREE.Vector2(0.5, 0.5) },
+    uMaxBlur: { value: 0 },
+  };
+  const blurMaterialV = new THREE.ShaderMaterial({
+    uniforms: blurUniformsV,
+    depthTest: false,
+    depthWrite: false,
+    vertexShader: blurVertexShader,
+    fragmentShader: blurFragmentShader("vec2(0.0, 1.0)", true),
+  });
+  const blurSceneV = new THREE.Scene();
+  blurSceneV.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), blurMaterialV));
 
   buildHeroText(uniforms).catch((err) =>
     console.warn("Hero wordmark skipped:", err)
   );
-  buildDepthTuner(uniforms); // TEMPORARY — see function def below
+  // buildDepthTuner(uniforms); // dev-only tuning panel — see function def below; re-enable if the depth values need adjusting again
 
   let maxBlurPx = 0;
+  let lastW = 0;
+  let lastH = 0;
   function resize() {
     const w = canvas.clientWidth || 1;
     const h = canvas.clientHeight || 1;
+    const narrow = w < 700;
+
+    // On mobile widths, the URL bar collapsing/expanding as you scroll
+    // changes the viewport's height without its width — that's not a
+    // real resize, just toolbar chrome animating (the CSS side of this
+    // is handled by .hero__stage's 100lvh, but this guards the WebGL
+    // resources regardless of what triggered the event). Only react to
+    // a mobile "resize" when width also changes — rotation, or an
+    // actual window resize — which is the real signal there. Desktop
+    // isn't guarded: a height-only resize there (e.g. dragging the
+    // window edge) is a genuine resize.
+    if (narrow && w === lastW && h !== lastH) return;
+    lastW = w;
+    lastH = h;
+
     renderer.setSize(w, h, false);
     const bw = Math.round(w * dpr);
     const bh = Math.round(h * dpr);
     rt.setSize(bw, bh);
+    rt2.setSize(bw, bh);
     uniforms.uRes.value.set(w, h);
-    blurUniforms.uTexel.value.set(1 / bw, 1 / bh);
+    // H samples rt (full res); V samples rt2 (same size — both passes
+    // run at full resolution for now, see the pass-2/3 comment above).
+    blurUniformsH.uTexel.value.set(1 / bw, 1 / bh);
+    blurUniformsV.uTexel.value.set(1 / bw, 1 / bh);
     maxBlurPx = bh * MAX_BLUR_FRAC;
 
-    const narrow = w < 700;
     uniforms.uNameSpanW.value = narrow ? 0.94 : 0.88;
     uniforms.uAmpFitGap.value = narrow ? 0 : 1;
   }
@@ -662,8 +764,16 @@ function initHero() {
   resize();
 
   // --- pointer parallax --------------------------------------------
+  // Pointer Events unify mouse, touch, and pen under the same
+  // "pointermove" type — clientX/clientY work identically for a finger
+  // drag as for a mouse move, so this needs no touch-specific handling,
+  // just no longer gating the listener to "pointer: fine" (which
+  // excludes touch entirely, why dragging a finger on mobile did
+  // nothing). { passive: true } means this never blocks the page's
+  // normal scroll handling — the parallax just rides along with
+  // whatever the finger is already doing.
   const targetPointer = new THREE.Vector2(0, 0);
-  if (!prefersReduced && window.matchMedia("(pointer: fine)").matches) {
+  if (!prefersReduced) {
     window.addEventListener(
       "pointermove",
       (e) => {
@@ -679,13 +789,20 @@ function initHero() {
   // --- scroll progress -------------------------------------------
   // Mapped over the first CRANE_VH viewport heights, then held at 1.
   function updateScroll() {
-    const p = clamp(
-      window.scrollY / (window.innerHeight * CRANE_VH),
-      0,
-      1
-    );
+    // lastH (from resize(), guarded against toolbar-only height changes)
+    // instead of window.innerHeight directly — innerHeight fluctuates as
+    // Safari's URL bar collapses/expands, which shifted this ratio (and
+    // therefore the whole crane/zoom/blur state) on every toolbar
+    // animation frame even with zero actual scrolling, reading as a
+    // jittery "resize" jump.
+    const p = clamp(window.scrollY / (lastH * CRANE_VH), 0, 1);
     uniforms.uScroll.value = p;
     if (overlayEl) overlayEl.style.setProperty("--p", p.toFixed(4));
+    // Same ramp the subject's WebGL blur used to follow (see the
+    // composite shader's coc = 0 comment) — now driving a small CSS
+    // blur over the whole canvas instead.
+    const cssBlur = smoothstep(0.5, 1.0, p) * CSS_BLUR_MAX_PX;
+    canvas.style.filter = cssBlur > 0.05 ? `blur(${cssBlur.toFixed(2)}px)` : "";
   }
   window.addEventListener("scroll", updateScroll, { passive: true });
   window.addEventListener("resize", updateScroll);
@@ -724,13 +841,16 @@ function initHero() {
 
     uniforms.uPointer.value.copy(cur);
     lastScroll = uniforms.uScroll.value;
-    blurUniforms.uMaxBlur.value =
-      smoothstep(0.24, 1.0, uniforms.uScroll.value) * maxBlurPx;
+    const blurAmt = smoothstep(0.24, 1.0, uniforms.uScroll.value) * maxBlurPx;
+    blurUniformsH.uMaxBlur.value = blurAmt;
+    blurUniformsV.uMaxBlur.value = blurAmt;
 
     renderer.setRenderTarget(rt);
     renderer.render(scene, camera);
+    renderer.setRenderTarget(rt2);
+    renderer.render(blurSceneH, camera);
     renderer.setRenderTarget(null);
-    renderer.render(blurScene, camera);
+    renderer.render(blurSceneV, camera);
   }
   tick();
 }
@@ -780,92 +900,103 @@ function smoothstep(a, b, x) {
 // Render the giant "&" and the "Victoria & Micah" wordmark to canvas
 // textures for the mid-ground layers behind the couple.
 async function buildHeroText(uniforms) {
-  // Bradford LL is declared as @font-face in styles.css; make sure the
-  // faces the canvas needs are actually decoded before measuring.
+  // The "&" and the names use different weights of Bradford LL and
+  // previously both waited on a single Promise.all of both fonts before
+  // either would draw — so a slow-loading font for one piece delayed the
+  // other for no reason. Now each renders independently, as soon as its
+  // own font is ready.
+  await Promise.allSettled([
+    buildAmpersand(uniforms),
+    buildNames(uniforms),
+  ]);
+}
+
+// --- the giant "&" (plain, upright) ---
+async function buildAmpersand(uniforms) {
   try {
-    await Promise.all([
-      document.fonts.load(`italic 700 240px ${SERIF}`),
-      document.fonts.load(`italic 300 240px ${SERIF}`),
-    ]);
+    await document.fonts.load(`italic 300 240px ${SERIF}`);
   } catch (err) {
-    console.warn("Bradford LL not ready for the hero wordmark:", err);
+    console.warn("Bradford LL (light italic) not ready for the \"&\":", err);
   }
 
-  // --- the giant "&" (plain, upright) ---
-  {
-    const ss = 3;
-    const fontPx = 440 * ss;
-    const pad = 24 * ss;
-    const gauge = document.createElement("canvas").getContext("2d");
-    gauge.font = `italic 300 ${fontPx}px ${SERIF}`;
-    const m = gauge.measureText("&");
-    const asc = m.actualBoundingBoxAscent || fontPx * 0.72;
-    const desc = m.actualBoundingBoxDescent || fontPx * 0.2;
+  const ss = 3;
+  const fontPx = 440 * ss;
+  const pad = 24 * ss;
+  const gauge = document.createElement("canvas").getContext("2d");
+  gauge.font = `italic 300 ${fontPx}px ${SERIF}`;
+  const m = gauge.measureText("&");
+  const asc = m.actualBoundingBoxAscent || fontPx * 0.72;
+  const desc = m.actualBoundingBoxDescent || fontPx * 0.2;
 
-    const cv = document.createElement("canvas");
-    cv.width = Math.ceil(m.width) + pad * 2;
-    cv.height = Math.ceil(asc + desc) + pad * 2;
-    const ctx = cv.getContext("2d");
-    ctx.font = `italic 300 ${fontPx}px ${SERIF}`;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillStyle = "#F6F3EC"; // warm white, matching the names
-    ctx.fillText("&", cv.width / 2, cv.height / 2);
+  const cv = document.createElement("canvas");
+  cv.width = Math.ceil(m.width) + pad * 2;
+  cv.height = Math.ceil(asc + desc) + pad * 2;
+  const ctx = cv.getContext("2d");
+  ctx.font = `italic 300 ${fontPx}px ${SERIF}`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = "#F6F3EC"; // warm white, matching the names
+  ctx.fillText("&", cv.width / 2, cv.height / 2);
 
-    uniforms.uAmp.value = makeTex(cv);
-    uniforms.uAmpAspect.value = cv.width / cv.height;
-    uniforms.uAmpReady.value = 1;
+  uniforms.uAmp.value = makeTex(cv);
+  uniforms.uAmpAspect.value = cv.width / cv.height;
+  uniforms.uAmpReady.value = 1;
+}
+
+// --- "Victoria" and "Micah", pushed out to flank the giant "&" ---
+async function buildNames(uniforms) {
+  try {
+    await document.fonts.load(`italic 700 240px ${SERIF}`);
+  } catch (err) {
+    console.warn("Bradford LL (bold italic) not ready for the names:", err);
   }
 
-  // --- "Victoria" and "Micah", pushed out to flank the giant "&" ---
-  {
-    const ss = 4;
-    const fontPx = 94 * ss;
-    const padY = 30 * ss;
-    const font = `italic 700 ${fontPx}px ${SERIF}`;
+  const ss = 4;
+  const fontPx = 94 * ss;
+  const padY = 30 * ss;
+  const font = `italic 700 ${fontPx}px ${SERIF}`;
 
-    const gauge = document.createElement("canvas").getContext("2d");
-    gauge.font = font;
-    // measureText's .width is the font's advance width, not the actual
-    // ink extent — for an italic bold face "V" and "h" have different
-    // side-bearings, so centering on advance width alone leaves visibly
-    // unequal outer margins. actualBoundingBoxLeft/Right (measured with
-    // the same textAlign used to draw each word) gives the real ink
-    // overhang past that anchor, so the margins below land on equal
-    // visible space, not just equal logical space.
-    gauge.textAlign = "left";
-    const vMetrics = gauge.measureText("Victoria");
-    const wV = vMetrics.width;
-    const vLeftInk = vMetrics.actualBoundingBoxLeft;
-    gauge.textAlign = "right";
-    const mMetrics = gauge.measureText("Micah");
-    const wM = mMetrics.width;
-    const mRightInk = mMetrics.actualBoundingBoxRight;
-    // A centre gap wide enough for the "&" to sit clear between them.
-    const gap = (wV + wM) * 0.85;
-    const totalW = wV + gap + wM;
-    const margin = fontPx * 0.3;
+  const gauge = document.createElement("canvas").getContext("2d");
+  gauge.font = font;
+  // measureText's .width is the font's advance width, not the actual
+  // ink extent — for an italic bold face "V" and "h" have different
+  // side-bearings, so centering on advance width alone leaves visibly
+  // unequal outer margins. actualBoundingBoxLeft/Right (measured with
+  // the same textAlign used to draw each word) gives the real ink
+  // overhang past that anchor, so the margins below land on equal
+  // visible space, not just equal logical space.
+  gauge.textAlign = "left";
+  const vMetrics = gauge.measureText("Victoria");
+  const wV = vMetrics.width;
+  const vLeftInk = vMetrics.actualBoundingBoxLeft;
+  gauge.textAlign = "right";
+  const mMetrics = gauge.measureText("Micah");
+  const wM = mMetrics.width;
+  const mRightInk = mMetrics.actualBoundingBoxRight;
+  // A centre gap wide enough for the "&" to sit clear between them.
+  const gap = (wV + wM) * 0.85;
+  const totalW = wV + gap + wM;
+  const margin = fontPx * 0.3;
 
-    const cv = document.createElement("canvas");
-    cv.width = Math.ceil(totalW + margin * 2 + vLeftInk + mRightInk);
-    cv.height = Math.ceil(fontPx * 1.34) + padY * 2;
-    const ctx = cv.getContext("2d");
-    ctx.font = font;
-    ctx.textBaseline = "middle";
-    ctx.fillStyle = "#ffffff";
-    ctx.shadowColor = "rgba(18, 18, 16, 0.18)";
-    ctx.shadowBlur = 14 * ss;
-    ctx.shadowOffsetY = 3 * ss;
-    ctx.textAlign = "left";
-    ctx.fillText("Victoria", margin + vLeftInk, cv.height / 2);
-    ctx.textAlign = "right";
-    ctx.fillText("Micah", cv.width - margin - mRightInk, cv.height / 2);
+  const cv = document.createElement("canvas");
+  cv.width = Math.ceil(totalW + margin * 2 + vLeftInk + mRightInk);
+  cv.height = Math.ceil(fontPx * 1.34) + padY * 2;
+  const ctx = cv.getContext("2d");
+  ctx.font = font;
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = "#ffffff";
+  ctx.shadowColor = "rgba(18, 18, 16, 0.18)";
+  ctx.shadowBlur = 14 * ss;
+  ctx.shadowOffsetY = 3 * ss;
+  ctx.textAlign = "left";
+  ctx.fillText("Victoria", margin + vLeftInk, cv.height / 2);
+  ctx.textAlign = "right";
+  ctx.fillText("Micah", cv.width - margin - mRightInk, cv.height / 2);
 
-    uniforms.uName.value = makeTex(cv);
-    uniforms.uNameAspect.value = cv.width / cv.height;
-    uniforms.uAmpGapFrac.value = gap / cv.width;
-    uniforms.uNameReady.value = 1;
-  }
+  uniforms.uName.value = makeTex(cv);
+  uniforms.uNameAspect.value = cv.width / cv.height;
+  uniforms.uAmpGapFrac.value = gap / cv.width;
+  uniforms.uNameReady.value = 1;
 }
 
 function makeTex(cv) {

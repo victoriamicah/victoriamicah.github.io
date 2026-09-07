@@ -63,16 +63,18 @@
   --ivory: #F5F2EA;
   --ink: #2B2B26;
   --ink-soft: #55534A;
-  --moss: #55684D;
   --moss-dark: #3B4A36;
   --outline: #BDB6A3;
-  --bloom: #C97B76;
   --bloom-dark: #8E4A46;
-  --vase: #8A9680;
   --card: #FFFDF8;
   --focus: #4C7A93;
-  --cerulean: #565CCE;
-  --cerulean-dark: #454AA5;
+  --cerulean: #436DA1;
+  --cerulean-dark: #365781;
+  /* Status-bar/URL-bar chrome tint only (see the html rule below) — a
+     close match to the hero photo's own sky tone. Deliberately separate
+     from --ink, which is the site's actual text/UI color; conflating
+     the two earlier made all body text and borders render pale blue. */
+  --chrome-tint: #A8B7CA;
 }
 
 * {
@@ -92,15 +94,59 @@
 }
 
 html {
-  background: #9EAFC5;
+  /* iOS Safari extends the root element's own background-color into the
+     status-bar/URL-bar chrome strip, but that mechanism only ever
+     samples the flat color, never an image — confirmed by testing, so
+     that one strip specifically stays --chrome-tint regardless of what
+     image is set here. The actual image behind that strip comes from
+     .chrome-bleed instead (see below), a real absolute-positioned
+     element rather than a CSS background, because that route is proven
+     to work there. The image below IS used for the general overscroll/
+     rubber-band bounce canvas, though — a more standard rendering path
+     than the status-bar quirk, with no confirmed same limitation. */
+  background: var(--chrome-tint) url("assets/bg-web-Blurred.jpg") center 45% / cover no-repeat;
 }
 
 body {
   margin: 0;
   min-height: 100vh;
-  background: var(--ivory);
+  /* Containing block for .chrome-bleed. .hero__stage is position:fixed
+     and always covers the full viewport underneath <main> during normal
+     scrolling, so this is essentially never seen except in edge cases
+     like iOS rubber-band overscroll bounce — matching the hero's own
+     tone there instead of a separate "paper" ivory identity, since
+     nothing in the actual page design needs body to look distinct from
+     the hero (the RSVP content scrolls straight over the fixed WebGL
+     backdrop, not onto a separate paper page). */
+  position: relative;
+  background: var(--chrome-tint) url("assets/bg-web-Blurred.jpg") center 45% / cover no-repeat;
   color: var(--ink);
   font-family: var(--serif);
+}
+
+/* ---------------------------------------------------------------
+   Chrome-bleed — a decoy for iOS Safari's status-bar/URL-bar strip.
+   .hero__stage is position:fixed (needed for smooth, native-compositor
+   pinning — confirmed by testing that fixed elements can't bleed under
+   the safe area there, while plain position:absolute content can), so
+   it covers the ENTIRE viewport at every scroll position except that
+   one unreachable strip. This div sits behind it (z-index -1, so it's
+   invisible everywhere .hero__stage already covers) but — being
+   absolute, not fixed — moves through the document like real content,
+   so wherever the chrome strip currently sits, this is what's revealed
+   there instead of a flat color. inset:0 with no explicit height
+   stretches it to span body's full (auto) height, i.e. the whole page,
+   so this holds true at any scroll position, not just the first
+   screen. The tiny blurred image tiles vertically — already low-detail
+   enough that repeat seams are imperceptible, and this whole element
+   is normally hidden anyway.
+   --------------------------------------------------------------- */
+.chrome-bleed {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: var(--chrome-tint) url("assets/bg-web-Blurred.jpg") center top / 100% auto repeat-y;
 }
 
 main {
@@ -110,8 +156,14 @@ main {
   max-width: 34rem;
   margin: 0 auto;
   /* Transparent — the copy sits straight on the blurred hero, the only
-     glass panel is the .rsvp form itself. */
-  padding: 8vh 1.25rem 22vh;
+     glass panel is the .rsvp form itself. Bottom padding sized so the
+     .rsvp block (the last thing in here) can actually scroll up to
+     vertical centre: at max scroll, a point R above the very bottom of
+     the page lands at (100vh - R) from the viewport top, so reaching
+     centre (50vh) needs R >= 50vh plus half the form's own height.
+     Tuned to the form's current height — if that height changes a lot,
+     this may need retuning. */
+  padding: 8vh 1.25rem 28vh;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -130,14 +182,44 @@ main {
 }
 
 .hero__stage {
+  /* position:fixed can't bleed under iOS Safari's status-bar/URL-bar
+     safe areas — confirmed by testing, along with absolute and sticky
+     alternatives. absolute + a JS transform (translateY(scrollY) on
+     every scroll tick) did bleed correctly, but couldn't hold up
+     visually: syncing via requestAnimationFrame competes with the
+     WebGL render each frame and can't match fixed's native, compositor
+     -driven smoothness. Traded back to smooth/native pinning — the
+     safe-area strip is a flat colour (html's own background) instead
+     of the live photo; see the html rule below. */
   position: fixed;
   inset: 0;
   z-index: 0;
-  height: 100vh;
-  height: 100dvh;
   overflow: hidden;
-  /* Fallback shown until (or unless) hero.js paints the canvas. */
-  background: var(--ink) url("assets/hero-web.jpg") center 30% / cover no-repeat;
+  /* lvh (large viewport height, the toolbar-collapsed size) instead of
+     100vh — a fixed pixel value that never changes during scroll, so
+     there's no gap at the bottom whenever the toolbar collapses (svh,
+     the toolbar-expanded/smallest size, was tried first, but that
+     leaves a visible gap at the bottom whenever the toolbar collapses,
+     which is most of the time you're actually scrolling). When the
+     toolbar IS expanded (viewport smaller than 100lvh) this just
+     extends a bit past the bottom edge, off-screen and harmless.
+     vh fallback for browsers without lvh support. */
+  height: 100vh;
+  height: 100lvh;
+  /* Shown until hero.js's canvas fades in (see #hero-canvas.is-ready) —
+     the same tiny blurred crop as .chrome-bleed, not the sharp photo.
+     Unlike hero-web.jpg (see .show-fallback-image below), a mismatch
+     between this crop and the WebGL composite's own framing is barely
+     noticeable once blurred, and at 300x402px it paints essentially
+     instantly — a blur-up placeholder, not a real attempt at matching
+     framing. The sharp photo only shows up (.show-fallback-image) if
+     hero.js decides the scene has actually failed or is taking
+     unreasonably long — not by default. */
+  background: var(--chrome-tint) url("assets/bg-web-Blurred.jpg") center 45% / cover no-repeat;
+}
+
+.hero__stage.show-fallback-image {
+  background: var(--ink) url("assets/hero-web.jpg") center 45% / cover no-repeat;
 }
 
 #hero-canvas {
@@ -146,6 +228,12 @@ main {
   width: 100%;
   height: 100%;
   display: block;
+  opacity: 0;
+  transition: opacity 0.6s ease;
+}
+
+#hero-canvas.is-ready {
+  opacity: 1;
 }
 
 .hero__overlay {
@@ -170,7 +258,7 @@ main {
 
 .hero__cue {
   position: absolute;
-  bottom: 2.2rem;
+  bottom: 3.4rem; /* nudged up so mobile toolbars don't clip it */
   margin: 0;
   font-size: 0.72rem;
   letter-spacing: 0.28em;
@@ -252,79 +340,6 @@ main {
   }
 }
 
-.arrangement-wrap {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-#arrangement {
-  width: 100%;
-  max-width: 26rem;
-  height: auto;
-}
-
-.vase {
-  fill: var(--vase);
-  opacity: 0.85;
-}
-
-.branch {
-  fill: none;
-  stroke: var(--moss);
-  stroke-width: 1.4;
-  stroke-linecap: round;
-  opacity: 0.7;
-}
-
-.flower .petal {
-  transition: fill 0.4s ease, stroke 0.4s ease;
-}
-
-.flower .center {
-  transition: fill 0.4s ease;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .flower .petal,
-  .flower .center {
-    transition: none;
-  }
-}
-
-.flower-pending .petal {
-  fill: none;
-  stroke: var(--outline);
-  stroke-width: 1;
-}
-
-.flower-pending .center {
-  fill: none;
-  stroke: var(--outline);
-  stroke-width: 1;
-}
-
-.flower-bloomed .petal {
-  fill: var(--bloom);
-  stroke: var(--bloom-dark);
-  stroke-width: 0.6;
-}
-
-.flower-bloomed .center {
-  fill: var(--bloom-dark);
-}
-
-.flower-removed {
-  opacity: 0.12;
-}
-
-.tally-caption {
-  margin: 0;
-  font-size: 0.82rem;
-  color: var(--ink-soft);
-}
 
 /* The one glass panel: just the name fields + yes/no buttons. */
 .rsvp {
@@ -343,6 +358,7 @@ main {
 .deadline-text {
   margin: 0 0 1.25rem;
   font-size: 0.95rem;
+  line-height: 1.5;
   text-align: center;
   color: var(--ink-soft);
 }
