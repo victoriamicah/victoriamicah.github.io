@@ -229,6 +229,7 @@ function initHero() {
     uNameAspect: { value: 5 },
     uNameReady: { value: 0 },
     uNameSpanW: { value: 0.82 }, // "Victoria  Micah" width as fraction of vw
+    uTitleCenterY: { value: 0.60 }, // "&"/names vertical centre (v, bottom-up) — raised on tall phone aspects, see resize()
     uPhotoRes: { value: new THREE.Vector2(PHOTO_W, PHOTO_H) },
     uBgSqueeze: { value: BG_X_SQUEEZE },
     uRes: { value: new THREE.Vector2(1, 1) },
@@ -337,6 +338,7 @@ function initHero() {
       uniform float uNameAspect;
       uniform float uNameReady;
       uniform float uNameSpanW;
+      uniform float uTitleCenterY;
       uniform vec2 uPhotoRes;
       uniform float uBgSqueeze;
       uniform vec2 uRes;
@@ -494,7 +496,7 @@ function initHero() {
           // centred in its own box, so a true 0.5 centre reads as
           // slightly left-heavy. A little extra overlap onto "Micah" is
           // fine here.
-          vec2 centre = vec2(0.52, 0.60);
+          vec2 centre = vec2(0.52, uTitleCenterY);
           vec2 drift = uPointer * uAmpPointerAmt * uMotion
                      + vec2(0.0, dolly * uAmpDriftY);
           // Sits nearer than the background's own near-field ground
@@ -514,7 +516,7 @@ function initHero() {
         // line, and rising together as the camera cranes in.
         if (uNameReady > 0.5) {
           vec2 spanWH = vec2(uNameSpanW, uNameSpanW / uNameAspect * screenRatio);
-          vec2 centre = vec2(0.5, 0.60);
+          vec2 centre = vec2(0.5, uTitleCenterY);
           vec2 drift = uPointer * uNamePointerAmt * uMotion
                      + vec2(0.0, dolly * uNameDriftY);
           // Same mid-ground plane as the "&" — see grow note above.
@@ -782,6 +784,17 @@ function initHero() {
 
     uniforms.uNameSpanW.value = narrow ? 0.94 : 0.88;
     uniforms.uAmpFitGap.value = narrow ? 0 : 1;
+
+    // Tall phone aspect specifically, not just narrow width — a resized-
+    // narrow desktop window is still short/wide-ish and shouldn't get
+    // this. coverFit shows the photo's full height uncropped on tall/
+    // narrow screens (screenAspect < photoAspect), unlike the vertically
+    // -cropped, zoomed-in view desktop gets — so phones reveal extra sky
+    // above the couple that desktop never shows. Raise the title into
+    // that newly-visible space instead of sitting at the same fraction
+    // desktop uses, which was tuned for the cropped/zoomed framing.
+    const tallPhone = w < 700 && h / w > 1.5;
+    uniforms.uTitleCenterY.value = tallPhone ? 0.72 : 0.60;
   }
   window.addEventListener("resize", resize);
   resize();
