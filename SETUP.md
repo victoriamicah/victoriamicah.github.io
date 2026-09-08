@@ -73,9 +73,9 @@ Open the URL from step 3 directly in a browser tab. You should see:
 
 Now open the site (locally or published), enter a name, click
 **Yes, save the date**, and check the spreadsheet — a row should appear
-with a timestamp, the name, and `yes`. Refresh the page and the flower
-count should reflect it. Delete your test rows when you're done (keep
-row 1, the header).
+with a timestamp, the name, and `yes`. Refresh the page and the tally
+should reflect it. Delete your test rows when you're done (keep row 1,
+the header).
 
 ---
 
@@ -95,8 +95,8 @@ touch `script.js` again.
 ## Notes & limits
 
 - **Changing your mind:** if a guest submits again, the newest row for
-  that first + last name wins, so `yes → no` moves flowers out of the
-  arrangement. `doPost` returns `updated: true` plus `prev` (their old
+  that first + last name wins, so `yes → no` moves them out of the tally.
+  `doPost` returns `updated: true` plus `prev` (their old
   answer), so the page can react to the direction of the change — a warm
   "so glad you can make it after all!" for no→yes, a "we'll miss you" for
   yes→no — instead of "you're the Nth to say yes."

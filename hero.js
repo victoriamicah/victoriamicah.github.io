@@ -46,18 +46,6 @@ const BG_X_SQUEEZE = 0.9556; // (896/1200) / (3131/4007)
 // Blur radius at full scroll, as a fraction of the drawing buffer height.
 const MAX_BLUR_FRAC = 0.017;
 
-// Small CSS blur (px, in real screen pixels — not scaled by dpr like the
-// WebGL blur is) layered over the *entire* canvas late in the scroll.
-// The subject is held sharp in the WebGL composite itself (see coc = 0
-// on it in the composite shader) so it needs some other way to soften
-// by the time <main> takes over — rather than reintroducing a WebGL
-// blur pass on it (which is what caused the bloom/ghosting artifacts
-// this was built to avoid), a small native CSS blur over everything
-// gives the subject that same "hazes out at the end" cue for free. It's
-// deliberately small: the background is already blurred by the WebGL
-// passes, so this just adds a little on top of that too.
-const CSS_BLUR_MAX_PX = 4;
-
 // The crane-in completes over this many viewport heights of scroll; past
 // it the hero holds fully blurred as a backdrop for the content above.
 const CRANE_VH = 1.6;
@@ -568,9 +556,11 @@ function initHero() {
         float sa = clamp(s.a, 0.0, 1.0);
         color = mix(color, grade(s.rgb, subjDark, sat), sa);
 
-        // Subject stays held sharp for the whole scroll — no blur pass
-        // applied to it at all (radius = uMaxBlur * 0.0 always trips the
-        // radius < 0.75 bypass in the blur shader, so it's free too).
+        // Held sharp for the entire scroll, no blur at all — WebGL
+        // double-pass and the CSS filter were both tried for softening
+        // this late in the scroll, and both produced a visible bloom/
+        // halo hugging the subject's edge. Not worth chasing further;
+        // sharp throughout is the simple, correct-looking answer.
         coc = mix(coc, 0.0, sa);
 
         gl_FragColor = vec4(color, coc);
@@ -663,8 +653,17 @@ function initHero() {
             // near 0, i.e. the subject) so a blurring background pixel
             // near the subject's silhouette doesn't pull the subject's
             // crisp color into itself — that bleed is what read as a
-            // soft bloom/halo hugging the subject's edge.
-            w *= smoothstep(0.05, 0.3, sc.a);
+            // soft bloom/halo hugging the subject's edge. Lower edge
+            // sits exactly at the subject's held-sharp baseline coc
+            // (0.12, see the composite shader's subjBlur mix) so it's
+            // fully zero — not just reduced — for the whole first half
+            // of the scroll where the subject is meant to read sharp;
+            // an earlier, gentler curve (0.05-0.3) still left ~19%
+            // weight at 0.12, and that residual was the visible bloom.
+            // Relaxes back to full weight by 0.4, comfortably inside the
+            // subject's own blur ramp, so the two still blend once the
+            // subject is genuinely blurry too.
+            w *= smoothstep(0.12, 0.4, sc.a);
             acc += sc.rgb * w;
             wsum += w;
           }
@@ -727,7 +726,31 @@ function initHero() {
   let maxBlurPx = 0;
   let lastW = 0;
   let lastH = 0;
+
+  // Scroll is what drives the toolbar's own resize churn in the first
+  // place — rather than reacting to any resize event and hoping the
+  // reading is settled, just don't resize at all while a scroll is
+  // actively in progress. Once scrolling stops, reconcile once, which
+  // catches any genuine change (rotation, real window resize) that
+  // happened to land mid-scroll too.
+  let isScrolling = false;
+  let scrollStopTimer = null;
+  window.addEventListener(
+    "scroll",
+    () => {
+      isScrolling = true;
+      clearTimeout(scrollStopTimer);
+      scrollStopTimer = setTimeout(() => {
+        isScrolling = false;
+        resize();
+      }, 150);
+    },
+    { passive: true }
+  );
+
   function resize() {
+    if (isScrolling) return;
+
     const w = canvas.clientWidth || 1;
     const h = canvas.clientHeight || 1;
     const narrow = w < 700;
@@ -765,13 +788,16 @@ function initHero() {
 
   // --- pointer parallax --------------------------------------------
   // Pointer Events unify mouse, touch, and pen under the same
-  // "pointermove" type — clientX/clientY work identically for a finger
-  // drag as for a mouse move, so this needs no touch-specific handling,
-  // just no longer gating the listener to "pointer: fine" (which
-  // excludes touch entirely, why dragging a finger on mobile did
-  // nothing). { passive: true } means this never blocks the page's
-  // normal scroll handling — the parallax just rides along with
-  // whatever the finger is already doing.
+  // "pointermove" type, and this works great for mouse — but on iOS
+  // Safari, once a touch is recognized as a scroll (which any drag with
+  // a vertical component on this page will be), the native scroll
+  // gesture recognizer claims the touch and stops delivering move
+  // events to JS for the rest of that gesture. Confirmed by testing:
+  // pointermove only fires during a touch drag that stays purely
+  // horizontal. touchmove would hit the identical wall (Pointer Events
+  // for touch are synthesized from the same underlying touch stream),
+  // so there's no event-based fix — touch fundamentally can't deliver
+  // continuous position during a scroll the way a mouse cursor does.
   const targetPointer = new THREE.Vector2(0, 0);
   if (!prefersReduced) {
     window.addEventListener(
@@ -784,6 +810,51 @@ function initHero() {
       },
       { passive: true }
     );
+
+    // Device tilt as the mobile equivalent instead: a completely
+    // separate sensor stream from touch, so it's unaffected by scroll-
+    // gesture claiming and gives the same kind of continuous, ambient
+    // input a mouse cursor does. iOS 13+ requires an explicit
+    // permission prompt for motion sensors, and that prompt only works
+    // inside a real user gesture — touchstart (the instant of first
+    // contact, before any scroll swipe even completes) is as early as
+    // that's allowed to fire; it can't run on page load with zero
+    // interaction at all, Safari blocks that outright. Other browsers
+    // either don't need permission or don't support the API at all;
+    // both cases just skip straight past this and mouse/touch-drag
+    // parallax still works normally.
+    let baseTilt = null;
+    function onTilt(e) {
+      if (e.gamma === null || e.beta === null) return;
+      if (!baseTilt) baseTilt = { gamma: e.gamma, beta: e.beta };
+      const dGamma = e.gamma - baseTilt.gamma; // left/right
+      const dBeta = e.beta - baseTilt.beta; // front/back
+      targetPointer.set(
+        clamp(dGamma / 20, -1, 1),
+        clamp(-dBeta / 20, -1, 1)
+      );
+    }
+    function enableTilt() {
+      window.addEventListener("deviceorientation", onTilt, { passive: true });
+    }
+    if (
+      typeof DeviceOrientationEvent !== "undefined" &&
+      typeof DeviceOrientationEvent.requestPermission === "function"
+    ) {
+      window.addEventListener(
+        "touchstart",
+        () => {
+          DeviceOrientationEvent.requestPermission()
+            .then((state) => {
+              if (state === "granted") enableTilt();
+            })
+            .catch(() => {});
+        },
+        { once: true, passive: true }
+      );
+    } else if (typeof DeviceOrientationEvent !== "undefined") {
+      enableTilt();
+    }
   }
 
   // --- scroll progress -------------------------------------------
@@ -798,11 +869,6 @@ function initHero() {
     const p = clamp(window.scrollY / (lastH * CRANE_VH), 0, 1);
     uniforms.uScroll.value = p;
     if (overlayEl) overlayEl.style.setProperty("--p", p.toFixed(4));
-    // Same ramp the subject's WebGL blur used to follow (see the
-    // composite shader's coc = 0 comment) — now driving a small CSS
-    // blur over the whole canvas instead.
-    const cssBlur = smoothstep(0.5, 1.0, p) * CSS_BLUR_MAX_PX;
-    canvas.style.filter = cssBlur > 0.05 ? `blur(${cssBlur.toFixed(2)}px)` : "";
   }
   window.addEventListener("scroll", updateScroll, { passive: true });
   window.addEventListener("resize", updateScroll);

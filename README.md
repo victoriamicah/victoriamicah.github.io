@@ -15,31 +15,28 @@ documented in `SETUP.md`.
     displaced per-pixel by `assets/backgroundOnlyDepth.png` (a
     background-only depth map, white = near) so the sky and horizon stay
     pinned while the foreground grass drifts.
-  - **"You're Invited"** — set in `assets/Aesthetic-Regular.ttf`,
-    rendered to a canvas texture at run time and floated in the mid
-    ground: it drifts more than the landscape, less than the couple, and
-    fades out as you scroll.
+  - A giant **"&"** — the ampersand from the title, set MASSIVE in
+    Bradford LL and floated in the mid ground behind the couple.
+    Parallax-drifts and grows with the crane, fades near the end.
   - `assets/Subjects.png` — the couple, cut out on transparency, riding
     on top as one rigid card that translates furthest and fastest so
     they read as the near plane. Because it moves as a card and its
     edges are alpha, the couple never smears — the finished background
     shows through wherever they shift.
 
-  The effect responds to scroll and (on desktop) pointer movement.
+  The effect responds to scroll and pointer/finger movement, with a
+  progressive depth-of-field blur (separable Gaussian, not a single
+  bokeh-style pass — see the comments in `hero.js` if you're tuning it)
+  that holds the hero as a frosted backdrop once the crane-in finishes.
   `hero.js` loads web-sized copies (`assets/bg-web.jpg`,
-  `assets/bgdepth-web.png`, `assets/subjects-web.png`); if WebGL or the
-  Three.js CDN module is unavailable it falls back to a plain cover
-  image (see `.hero__stage` in `styles.css`).
-- A live arrangement of 150 flowers, generated along three branch lines.
-  Flowers fill in as "yes" responses come in and fade out as "no"
-  responses come in — see the spec doc for the tally-jar logic.
+  `assets/bgdepth-web.png`); if WebGL or the Three.js CDN module is
+  unavailable it falls back to a plain cover image (see `.hero__stage`
+  in `styles.css`).
 - A simple form: first name, last name, then a **Yes** or **No** button.
+  The current yes/no tally is fetched from the backend and kept in sync
+  as other guests respond, but isn't shown as a visual count anywhere on
+  the page — it's just used for the optimistic UI update after a reply.
 - No identity matching, no login — this is intentionally simple.
-
-**This is a functional skeleton, not the final art.** The flower shapes
-and branch layout are placeholders that make the data-driven behavior
-work end to end; the polished hand-composed ikebana artwork is its own
-design pass, noted as an open item in the spec.
 
 ## Connect the backend
 
@@ -50,11 +47,11 @@ See `SETUP.md` for the full ~10-minute walkthrough. In short:
 2. **Deploy → New deployment → Web app**, execute as *Me*, access
    *Anyone*. Authorize it. Copy the Web App URL.
 3. Put that URL into `SCRIPT_URL` at the top of `script.js`.
-4. Refresh — the arrangement loads the real tally and the form writes
-   rows to your sheet. It re-checks the tally every 45s so it stays live.
+4. Refresh — the form writes rows to your sheet, and re-checks the tally
+   every 45s.
 
-Until you do that, the page still works: it shows an empty arrangement
-and tells you plainly that the backend isn't connected yet.
+Until you do that, the page still works: the form tells you plainly that
+the backend isn't connected yet.
 
 ## Publish it
 
@@ -73,5 +70,3 @@ One QR code pointing at that URL is all you need on the printed cards.
   yes/no confirmation messages in `script.js`'s `submitResponse`.
 - **Colors** — all driven by the CSS variables at the top of
   `styles.css`.
-- **Flower counts per branch** — `BRANCH_COUNTS` in `script.js` (must sum
-  to `TOTAL_FLOWERS`, 150).

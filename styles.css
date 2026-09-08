@@ -74,7 +74,7 @@
      close match to the hero photo's own sky tone. Deliberately separate
      from --ink, which is the site's actual text/UI color; conflating
      the two earlier made all body text and borders render pale blue. */
-  --chrome-tint: #A8B7CA;
+  --chrome-tint: #9DAEC3;
 }
 
 * {
@@ -98,56 +98,65 @@ html {
      status-bar/URL-bar chrome strip, but that mechanism only ever
      samples the flat color, never an image — confirmed by testing, so
      that one strip specifically stays --chrome-tint regardless of what
-     image is set here. The actual image behind that strip comes from
-     .chrome-bleed instead (see below), a real absolute-positioned
-     element rather than a CSS background, because that route is proven
-     to work there. The image below IS used for the general overscroll/
-     rubber-band bounce canvas, though — a more standard rendering path
-     than the status-bar quirk, with no confirmed same limitation. */
+     image is set here. The image below IS used for the general
+     overscroll/rubber-band bounce canvas, a more standard rendering
+     path than the status-bar quirk — the root element's own background
+     paints as a special "canvas" layer, effectively viewport-pinned,
+     unlike a normal element's background (see body below for why that
+     distinction matters). */
   background: var(--chrome-tint) url("assets/bg-web-Blurred.jpg") center 45% / cover no-repeat;
 }
 
 body {
   margin: 0;
   min-height: 100vh;
-  /* Containing block for .chrome-bleed. .hero__stage is position:fixed
-     and always covers the full viewport underneath <main> during normal
-     scrolling, so this is essentially never seen except in edge cases
-     like iOS rubber-band overscroll bounce — matching the hero's own
-     tone there instead of a separate "paper" ivory identity, since
-     nothing in the actual page design needs body to look distinct from
-     the hero (the RSVP content scrolls straight over the fixed WebGL
-     backdrop, not onto a separate paper page). */
-  position: relative;
-  background: var(--chrome-tint) url("assets/bg-web-Blurred.jpg") center 45% / cover no-repeat;
+  /* .hero__stage is position:fixed and always covers the full viewport
+     underneath <main> during normal scrolling, so this background is
+     essentially never seen except in edge cases like iOS rubber-band
+     overscroll bounce — matching the hero's own tone there instead of a
+     separate "paper" ivory identity, since nothing in the actual page
+     design needs body to look distinct from the hero (the RSVP content
+     scrolls straight over the fixed WebGL backdrop, not onto a separate
+     paper page).
+     Confirmed via on-device diagnostic (temporarily colouring this
+     lime): body's background IS visible drifting up the screen during
+     scroll on iOS Safari when the URL bar is expanded at the top — it's
+     a normal element background, not pinned by anything, so it scrolls
+     with the document like any other content would. That's expected for
+     an unpinned element; a *textured* image (bg-web-Blurred.jpg, tried
+     earlier) visibly showed that motion as a seam sliding past. A smooth
+     gradient doesn't have that problem — it looks the same regardless of
+     which part of it is currently scrolled into view, so the same
+     unpinned scrolling is invisible here.
+     gradientBG.jpg is authored with the gradient itself confined to
+     roughly its top two-thirds and a flat tail for the rest — with
+     background-size:cover stretching it across the entire (very tall)
+     document, that flat tail is what covers the long remainder, so the
+     one real transition stays anchored near the top of the page instead
+     of being diluted into an imperceptible slice by the stretch. JPG
+     over PNG here since it's a smooth gradient with no transparency —
+     lossy DCT compression suits continuous tone better than PNG's
+     lossless approach, and JPG artifacts only show up on sharp edges/
+     high-frequency detail, which this image has none of. */
+  background: var(--chrome-tint) url("assets/gradientBG.jpg") center top / cover no-repeat;
   color: var(--ink);
   font-family: var(--serif);
 }
 
-/* ---------------------------------------------------------------
-   Chrome-bleed — a decoy for iOS Safari's status-bar/URL-bar strip.
-   .hero__stage is position:fixed (needed for smooth, native-compositor
-   pinning — confirmed by testing that fixed elements can't bleed under
-   the safe area there, while plain position:absolute content can), so
-   it covers the ENTIRE viewport at every scroll position except that
-   one unreachable strip. This div sits behind it (z-index -1, so it's
-   invisible everywhere .hero__stage already covers) but — being
-   absolute, not fixed — moves through the document like real content,
-   so wherever the chrome strip currently sits, this is what's revealed
-   there instead of a flat color. inset:0 with no explicit height
-   stretches it to span body's full (auto) height, i.e. the whole page,
-   so this holds true at any scroll position, not just the first
-   screen. The tiny blurred image tiles vertically — already low-detail
-   enough that repeat seams are imperceptible, and this whole element
-   is normally hidden anyway.
-   --------------------------------------------------------------- */
-.chrome-bleed {
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  pointer-events: none;
-  background: var(--chrome-tint) url("assets/bg-web-Blurred.jpg") center top / 100% auto repeat-y;
-}
+/* Chrome-bleed (a decoy element meant to bleed the hero's blurred image
+   into iOS Safari's status-bar/URL-bar safe-area strip) was removed
+   here after extensive on-device testing: four different positioning
+   strategies (position:absolute + JS scroll-sync transform tried
+   twice, position:sticky with height:0, position:sticky with a real
+   height + negative margin) all failed to make it visible in that
+   strip, and a final solid-colour diagnostic (bright magenta) confirmed
+   it never painted anywhere on screen at all — it was fully inert. That
+   lines up with the html rule's own comment below: iOS Safari's safe-
+   area chrome-tinting only ever samples the root element's flat
+   background-color, a separate OS-level mechanism that doesn't render
+   arbitrary DOM content underneath it regardless of that content's
+   positioning. --chrome-tint on html is the actual, working answer for
+   that strip. */
 
 main {
   position: relative;
@@ -206,15 +215,6 @@ main {
      vh fallback for browsers without lvh support. */
   height: 100vh;
   height: 100lvh;
-  /* Shown until hero.js's canvas fades in (see #hero-canvas.is-ready) —
-     the same tiny blurred crop as .chrome-bleed, not the sharp photo.
-     Unlike hero-web.jpg (see .show-fallback-image below), a mismatch
-     between this crop and the WebGL composite's own framing is barely
-     noticeable once blurred, and at 300x402px it paints essentially
-     instantly — a blur-up placeholder, not a real attempt at matching
-     framing. The sharp photo only shows up (.show-fallback-image) if
-     hero.js decides the scene has actually failed or is taking
-     unreasonably long — not by default. */
   background: var(--chrome-tint) url("assets/bg-web-Blurred.jpg") center 45% / cover no-repeat;
 }
 
